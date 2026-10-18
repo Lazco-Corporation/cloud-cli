@@ -1,0 +1,54 @@
+{
+  "name": "@lazco/cli",
+  "version": "0.0.0",
+  "description": "Lazco Cloud CLI and local MCP server",
+  "type": "module",
+  "license": "MIT",
+  "author": "Lazco Corporation (拉資科科技有限公司)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lazco-Corporation/cloud-cli.git"
+  },
+  "homepage": "https://github.com/Lazco-Corporation/cloud-cli#readme",
+  "bugs": {
+    "url": "https://github.com/Lazco-Corporation/cloud-cli/issues"
+  },
+  "keywords": [
+    "lazco",
+    "cli",
+    "mcp",
+    "cloud"
+  ],
+  "bin": {
+    "lazco": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "check": "biome check",
+    "check:fix": "biome check --write",
+    "type-check": "tsc --noEmit",
+    "test": "bun run test:unit",
+    "test:unit": "bun test --pass-with-no-tests --path-ignore-patterns='test/contract/**'",
+    "test:contract": "bun run build && bun test ./test/contract",
+    "build": "bun build ./src/cli.ts --target node --packages external --outdir dist",
+    "build:binaries": "bash scripts/build-binaries.sh",
+    "release": "bash scripts/release.sh"
+  },
+  "dependencies": {
+    "citty": "^0.2.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@types/bun": "^1.4.3",
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  }
+}

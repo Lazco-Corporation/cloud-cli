@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Pre-push: scan the pushed commits for secrets, then run the check, the type check and the unit tests.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+ZERO_SHA="0000000000000000000000000000000000000000"
+
+fail() {
+  printf '[x] %s\n' "$1" >&2
+  exit 1
+}
+
+step() {
+  local name="$1"
+  shift
+  printf '[.] %s\n' "$name"
+  "$@" || fail "${name} failed."
+}
+
+command -v gitleaks >/dev/null 2>&1 || fail "gitleaks not found. Install it (brew install gitleaks), then push again."
+
+push_range() {
+  local local_sha="$1" remote_sha="$2" base
+  if [[ "$remote_sha" != "$ZERO_SHA" ]]; then
+    printf '%s..%s' "$remote_sha" "$local_sha"
+    return
+  fi
+  base="$(git merge-base "$local_sha" origin/main 2>/dev/null || true)"
+  if [[ -n "$base" ]]; then
+    printf '%s..%s' "$base" "$local_sha"
+  else
+    printf '%s' "$local_sha"
+  fi
+}
+
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [[ "$local_sha" == "$ZERO_SHA" ]] && continue
+  range="$(push_range "$local_sha" "$remote_sha")"
+  step "gitleaks (${range})" gitleaks git --no-banner --redact --config .gitleaks.toml --log-opts="$range"
+done
+
+step "bun run check" bun run check
+step "bun run type-check" bun run type-check
+step "bun run test:unit" bun run test:unit
+
+printf '[ok] pre-push checks passed\n'

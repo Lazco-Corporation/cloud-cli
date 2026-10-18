@@ -1,0 +1,35 @@
+# Gitleaks configuration
+# https://github.com/gitleaks/gitleaks
+#
+# [extend] keeps every built-in rule (AWS, GitHub, npm, Slack, and more),
+# so this file only adds the Lazco credential formats.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "lazco-api-token"
+description = "Lazco API token (lz_live_<64-hex>)"
+regex = '''lz_live_[0-9a-fA-F]{64}'''
+keywords = ["lz_live_"]
+
+[[rules]]
+id = "lazco-admin-api-key"
+description = "Lazco admin API key (lz_admin_<64-hex>)"
+regex = '''lz_admin_[0-9a-fA-F]{64}'''
+keywords = ["lz_admin_"]
+
+[allowlist]
+description = "Fake credentials in tests and placeholders in docs"
+regexTarget = "match"
+regexes = [
+  # A test fixture token starts with 48 zeros, so a real token never matches.
+  '''lz_(live|admin)_0{48}[0-9a-fA-F]{16}''',
+  # Documentation placeholders.
+  '''lz_live_<[^>]*>''',
+]
+paths = [
+  '''\.gitleaks\.toml$''',
+  '''^dist/''',
+  '''^bun\.lock$''',
+]

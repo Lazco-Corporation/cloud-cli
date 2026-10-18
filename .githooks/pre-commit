@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Pre-commit: block staged secrets, then format and lint the staged files with Biome.
+# A missing gitleaks fails the commit, because a skipped scan looks like a clean one.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+fail() {
+  printf '[x] %s\n' "$1" >&2
+  exit 1
+}
+
+command -v gitleaks >/dev/null 2>&1 || fail "gitleaks not found. Install it (brew install gitleaks), then commit again."
+
+printf '[.] gitleaks (staged files)\n'
+gitleaks git --staged --no-banner --redact --config .gitleaks.toml || fail "gitleaks found a secret in the staged files."
+
+staged_files="$(git diff --cached --name-only --diff-filter=ACMR -- '*.ts' '*.js' '*.json' '*.jsonc')"
+if [[ -n "$staged_files" ]]; then
+  printf '[.] biome check --write (staged files)\n'
+  bunx biome check --write --staged --no-errors-on-unmatched || fail "biome found errors it cannot fix."
+  printf '%s\n' "$staged_files" | while IFS= read -r file; do
+    git add -- "$file"
+  done
+fi
+
+printf '[ok] pre-commit checks passed\n'
