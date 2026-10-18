@@ -1,8 +1,13 @@
 import type Ajv2020 from "ajv/dist/2020.js";
 import packageJson from "../../package.json" with { type: "json" };
 import { HANDWRITTEN_COMMANDS } from "../commands/registry";
-import type { HandwrittenCommand } from "../commands/types";
-import { cacheRoot, currentPathEnvironment, type PathEnvironment } from "../config/paths";
+import type { HandwrittenCommand, HandwrittenContext } from "../commands/types";
+import {
+  cacheRoot,
+  configFilePath,
+  currentPathEnvironment,
+  type PathEnvironment,
+} from "../config/paths";
 import { CliError, toToolError } from "../core/errors";
 import { describeSkip, generateSurface, type Operation } from "../core/generate/operations";
 import { CommandTree, type Resolution } from "../core/generate/tree";
@@ -16,6 +21,8 @@ import { nextPageFlag, readPage, walkPages } from "../core/request/paginate";
 import { RateLimiter } from "../core/request/rateLimiter";
 import { InputValidator } from "../core/request/validate";
 import { SpecSource } from "../core/spec/loader";
+import { type Keychain, osKeychain } from "../credentials/keychain";
+import { resolveSession, type Session, sessionCredential } from "../credentials/session";
 import { confirmCommand } from "./confirm";
 import { describeEntry, summarizeEntry } from "./describe";
 import { type CommandEntry, handwrittenEntry, operationEntry } from "./entries";
@@ -33,6 +40,7 @@ export type RunOptions = {
   fetch?: typeof fetch;
   clock?: Clock;
   paths?: PathEnvironment;
+  keychain?: Keychain;
 };
 
 /** Runs `lazco` with its arguments and returns the exit code: 0, or 1 on any error. */
@@ -50,11 +58,10 @@ export async function runCli(
       io.stdout.write(`${VERSION}\n`);
       return 0;
     }
-    const credential = io.env.LAZCO_TOKEN || undefined;
-    if (credential) {
-      secrets.push(credential);
+    if (io.env.LAZCO_TOKEN) {
+      secrets.push(io.env.LAZCO_TOKEN);
     }
-    const shell = new Shell(io, flags, credential, options);
+    const shell = new Shell(io, flags, secrets, options);
     await shell.dispatch(rest);
     return 0;
   } catch (error) {
@@ -68,39 +75,98 @@ type Surface = { tree: CommandTree<CommandEntry> };
 class Shell {
   private readonly io: Io;
   private readonly flags: GlobalFlags;
-  private readonly credential: string | undefined;
+  private readonly activeSecrets: string[];
   private readonly clock: Clock;
-  private readonly client: ApiClient;
-  private readonly specSource: SpecSource;
+  private readonly fetchImplementation: typeof fetch | undefined;
+  private readonly limiter: RateLimiter;
+  private readonly keychain: Keychain;
+  private readonly configPath: string;
   private readonly cacheDirectory: string;
+  private sessionPromise: Promise<Session> | undefined;
+  private credentialPromise: Promise<string> | undefined;
+  private specSourcePromise: Promise<SpecSource> | undefined;
   private readonly ajv: Ajv2020;
   private readonly validator: InputValidator;
   private readonly handwritten: readonly CommandEntry[];
   private readonly warnedSkips = new Set<string>();
 
-  constructor(io: Io, flags: GlobalFlags, credential: string | undefined, options: RunOptions) {
+  constructor(io: Io, flags: GlobalFlags, secrets: string[], options: RunOptions) {
     this.io = io;
     this.flags = flags;
-    this.credential = credential;
+    this.activeSecrets = secrets;
     this.clock = options.clock ?? SYSTEM_CLOCK;
-    this.cacheDirectory = cacheRoot(options.paths ?? currentPathEnvironment());
-    this.client = new ApiClient({
-      apiUrl: flags.apiUrl,
-      credential,
-      userAgent: `lazco-cli/${VERSION}`,
-      limiter: new RateLimiter(this.clock),
-      fetch: options.fetch,
-      clock: this.clock,
-    });
-    this.specSource = new SpecSource({
-      client: this.client,
-      cacheDirectory: this.cacheDirectory,
-      clock: this.clock,
-      warn: (message) => writeNotice(io, `warning: ${message}`),
-    });
+    this.fetchImplementation = options.fetch;
+    this.limiter = new RateLimiter(this.clock);
+    this.keychain = options.keychain ?? osKeychain();
+    const paths = options.paths ?? currentPathEnvironment();
+    this.cacheDirectory = cacheRoot(paths);
+    this.configPath = configFilePath(paths);
     this.ajv = createAjv();
     this.validator = new InputValidator(this.ajv);
     this.handwritten = (options.handwritten ?? HANDWRITTEN_COMMANDS).map(handwrittenEntry);
+  }
+
+  private client(apiUrl: string, credential: string | undefined): ApiClient {
+    return new ApiClient({
+      apiUrl,
+      credential,
+      userAgent: `lazco-cli/${VERSION}`,
+      limiter: this.limiter,
+      fetch: this.fetchImplementation,
+      clock: this.clock,
+    });
+  }
+
+  private session(): Promise<Session> {
+    this.sessionPromise ??= resolveSession({
+      env: this.io.env,
+      profileFlag: this.flags.profile,
+      apiUrlFlag: this.flags.apiUrl,
+      configPath: this.configPath,
+    });
+    return this.sessionPromise;
+  }
+
+  /** The session's credential, read once. Throws when there is none to send. */
+  private credential(): Promise<string> {
+    this.credentialPromise ??= this.session().then(async (session) => {
+      const credential = await sessionCredential(session, this.io.env, this.keychain);
+      this.addSecret(credential);
+      return credential;
+    });
+    return this.credentialPromise;
+  }
+
+  private addSecret(value: string): void {
+    if (value && !this.activeSecrets.includes(value)) {
+      this.activeSecrets.push(value);
+    }
+  }
+
+  private specSource(): Promise<SpecSource> {
+    this.specSourcePromise ??= this.session().then(
+      (session) =>
+        new SpecSource({
+          client: this.client(session.apiUrl, undefined),
+          cacheDirectory: this.cacheDirectory,
+          clock: this.clock,
+          warn: (message) => writeNotice(this.io, `warning: ${message}`),
+        }),
+    );
+    return this.specSourcePromise;
+  }
+
+  private handwrittenContext(): HandwrittenContext {
+    return {
+      io: this.io,
+      flags: this.flags,
+      configPath: this.configPath,
+      keychain: this.keychain,
+      session: () => this.session(),
+      credential: () => this.credential(),
+      client: (apiUrl, credential) => this.client(apiUrl, credential),
+      addSecret: (value) => this.addSecret(value),
+    };
   }
 
   async dispatch(rest: readonly string[]): Promise<void> {
@@ -132,7 +198,7 @@ class Shell {
     let surface = await this.surface();
     let resolution = surface.tree.resolve(words);
     if (needsRefresh(resolution, words)) {
-      const refreshed = await this.specSource.refresh();
+      const refreshed = await (await this.specSource()).refresh();
       if (refreshed) {
         surface = this.buildSurface(refreshed.document);
         resolution = surface.tree.resolve(words);
@@ -162,7 +228,7 @@ class Shell {
   }
 
   private async surface(): Promise<Surface> {
-    return this.buildSurface((await this.specSource.get()).document);
+    return this.buildSurface((await (await this.specSource()).get()).document);
   }
 
   private buildSurface(document: Parameters<typeof generateSurface>[0]): Surface {
@@ -187,18 +253,39 @@ class Shell {
     const entries = surface
       ? surface.tree.below(prefix)
       : this.handwritten.filter((entry) => startsWith(entry.command, prefix));
-    const features = this.credential
-      ? await readFeatures({
-          client: this.client,
-          credential: this.credential,
-          cacheDirectory: this.cacheDirectory,
-          clock: this.clock,
-          warn: (message) => writeNotice(this.io, `warning: ${message}`),
-        })
-      : undefined;
+    const features = await this.features();
     return entries
       .filter((entry) => !isHidden(entry.feature, features))
       .sort((left, right) => left.command.join(" ").localeCompare(right.command.join(" ")));
+  }
+
+  /**
+   * The organization's features, or `undefined` when there is no credential
+   * to ask with, which hides nothing. A stored credential that `--api-url`
+   * points elsewhere is not sent for this.
+   */
+  private async features(): Promise<Record<string, boolean> | undefined> {
+    const session = await this.session();
+    if (session.source.kind === "none" || session.conflictingProfileUrl !== undefined) {
+      return undefined;
+    }
+    let credential: string;
+    try {
+      credential = await this.credential();
+    } catch (error) {
+      writeNotice(
+        this.io,
+        `warning: no command is hidden, because the credential could not be read: ${toToolError(error).message}`,
+      );
+      return undefined;
+    }
+    return readFeatures({
+      client: this.client(session.apiUrl, credential),
+      credential,
+      cacheDirectory: this.cacheDirectory,
+      clock: this.clock,
+      warn: (message) => writeNotice(this.io, `warning: ${message}`),
+    });
   }
 
   private async describeAll(prefix: readonly string[], surface?: Surface): Promise<void> {
@@ -244,7 +331,7 @@ class Shell {
   }
 
   private secrets(): string[] {
-    return this.credential ? [this.credential] : [];
+    return this.activeSecrets;
   }
 
   private async runEntry(entry: CommandEntry, tokens: readonly string[]): Promise<void> {
@@ -270,13 +357,15 @@ class Shell {
     });
     const output = { human: this.flags.human, fields: this.flags.fields, secrets: this.secrets() };
     if (entry.source.type === "handwritten") {
+      this.validator.check(entry.inputSchema, input);
       writeResult(
         this.io,
-        await entry.source.handwritten.run(input, { io: this.io, flags: this.flags }),
+        await entry.source.handwritten.run(input, this.handwrittenContext()),
         output,
       );
       return;
     }
+    const session = await this.session();
     const operation = entry.source.operation;
     if (this.flags.pageAll && !operation.annotation.paginate) {
       throw new CliError(
@@ -287,10 +376,12 @@ class Shell {
     }
     const prepare = (pageInput: Record<string, unknown>): ApiRequest =>
       prepareRequest(operation, pageInput, {
-        apiUrl: this.client.apiUrl,
+        apiUrl: session.apiUrl,
         validator: this.validator,
       });
     checkBeforeConfirm(operation, input, prepare);
+    const credential = this.flags.dryRun ? undefined : await this.credential();
+    const client = this.client(session.apiUrl, credential);
     const confirmed = this.flags.dryRun
       ? input
       : await confirmCommand(
@@ -304,16 +395,10 @@ class Shell {
         );
     const request = prepare(confirmed);
     if (this.flags.dryRun) {
-      writeResult(this.io, { record: this.dryRun(operation, request) }, output);
+      writeResult(this.io, { record: dryRunPreview(client, operation, request) }, output);
       return;
     }
-    if (!this.credential) {
-      throw new CliError(
-        "CLI_NOT_LOGGED_IN",
-        "No credential: set LAZCO_TOKEN to a Lazco API token",
-      );
-    }
-    const context: ExecuteContext = { client: this.client, clock: this.clock };
+    const context: ExecuteContext = { client, clock: this.clock };
     if (operation.annotation.paginate) {
       if (this.flags.pageAll) {
         const items = await walkPages(
@@ -347,23 +432,24 @@ class Shell {
     });
     writeResult(this.io, Array.isArray(body) ? { list: body } : { record: body }, output);
   }
+}
 
-  private dryRun(operation: Operation, request: ApiRequest): Record<string, unknown> {
-    const preview: Record<string, unknown> = {
-      dryRun: true,
-      method: request.method,
-      url: this.client.url(request),
-      headers: this.client.publicHeaders(request),
-      body: request.body ?? null,
-    };
-    if (
-      operation.annotation.concurrency === "etag" &&
-      request.headers?.["If-Match"] === undefined
-    ) {
-      preview.ifMatchFrom = { method: "GET", url: this.client.url({ path: request.path }) };
-    }
-    return preview;
+function dryRunPreview(
+  client: ApiClient,
+  operation: Operation,
+  request: ApiRequest,
+): Record<string, unknown> {
+  const preview: Record<string, unknown> = {
+    dryRun: true,
+    method: request.method,
+    url: client.url(request),
+    headers: client.publicHeaders(request),
+    body: request.body ?? null,
+  };
+  if (operation.annotation.concurrency === "etag" && request.headers?.["If-Match"] === undefined) {
+    preview.ifMatchFrom = { method: "GET", url: client.url({ path: request.path }) };
   }
+  return preview;
 }
 
 function startsWith(command: readonly string[], prefix: readonly string[]): boolean {

@@ -1,9 +1,12 @@
+import { checkProfileName } from "../config/configFile";
 import { CliError } from "../core/errors";
 import { DEFAULT_WAIT_SECONDS } from "../core/request/execute";
 import { DEFAULT_API_URL, normalizeApiUrl } from "./apiUrl";
 
 export type GlobalFlags = {
-  apiUrl: string;
+  /** `--api-url`, normalized, or `undefined` when not given, so a profile's own URL applies. */
+  apiUrl: string | undefined;
+  profile: string | undefined;
   human: boolean;
   fields: string[] | undefined;
   pageAll: boolean;
@@ -30,7 +33,13 @@ export const GLOBAL_FLAGS: readonly GlobalFlagSpec[] = [
     name: "api-url",
     takesValue: true,
     valueHint: "url",
-    description: `The API base URL (default ${DEFAULT_API_URL})`,
+    description: `The API base URL (default: the profile's, or ${DEFAULT_API_URL})`,
+  },
+  {
+    name: "profile",
+    takesValue: true,
+    valueHint: "name",
+    description: "The profile to use (default: LAZCO_PROFILE, then the current profile)",
   },
   {
     name: "json",
@@ -144,9 +153,12 @@ export function extractGlobalFlags(argv: readonly string[]): {
     }
   }
   const fields = values.get("fields");
+  const apiUrl = values.get("api-url");
+  const profile = values.get("profile");
   return {
     flags: {
-      apiUrl: normalizeApiUrl(values.get("api-url") ?? DEFAULT_API_URL),
+      apiUrl: apiUrl === undefined ? undefined : normalizeApiUrl(apiUrl),
+      profile: profile === undefined ? undefined : checkProfileName(profile, "profile"),
       human: switches.has("human"),
       fields:
         fields === undefined

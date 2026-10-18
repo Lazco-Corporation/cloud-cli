@@ -6,8 +6,10 @@ import type { HandwrittenCommand } from "../../src/commands/types";
 import { writeFileAtomic } from "../../src/config/atomicFile";
 import { sha256Hex } from "../../src/config/paths";
 import type { OpenApiDocument } from "../../src/core/spec/types";
+import type { Keychain } from "../../src/credentials/keychain";
 import type { Io } from "../../src/shell/io";
 import { runCli } from "../../src/shell/run";
+import { memoryKeychain } from "./keychain";
 
 export const CLI_PATH = join(import.meta.dir, "..", "..", "src", "cli.ts");
 export const FAKE_TOKEN =
@@ -105,15 +107,24 @@ export async function seedSpecCache(
   return path;
 }
 
-/** Runs `lazco` in this process with captured output, for hand-written commands a test supplies. */
+/**
+ * Runs `lazco` in this process with captured output, with the hand-written
+ * commands and the keychain a test supplies. Without a keychain, one in
+ * memory is used, so no test touches the real one.
+ */
 export async function runInProcess(
   args: readonly string[],
-  options: { env: Record<string, string>; handwritten?: readonly HandwrittenCommand[] },
+  options: {
+    env: Record<string, string>;
+    handwritten?: readonly HandwrittenCommand[];
+    keychain?: Keychain;
+    stdin?: string;
+  },
 ): Promise<CliRun> {
   let stdout = "";
   let stderr = "";
   const stdin = new PassThrough();
-  stdin.end();
+  stdin.end(options.stdin ?? "");
   const io: Io = {
     stdout: { write: (text: string) => (stdout += text) },
     stderr: { write: (text: string) => (stderr += text) },
@@ -122,6 +133,7 @@ export async function runInProcess(
   };
   const code = await runCli(args, io, {
     handwritten: options.handwritten,
+    keychain: options.keychain ?? memoryKeychain(),
     paths: { env: options.env, platform: process.platform, home: options.env.HOME as string },
   });
   return { code, stdout, stderr };
