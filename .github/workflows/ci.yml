@@ -1,0 +1,85 @@
+# The checks of every change: Biome, the type check, the unit tests, the
+# build run once on Node 22 and one compiled binary started once, then the
+# contract tests against staging.
+#
+# It runs on a push to any branch, so a branch is proven before its pull
+# request exists, and the push run shows on the pull request of that branch.
+# A pull request from a fork has no push run here, so `check` runs for it on
+# `pull_request`, and `contract` never does: a fork gets no OIDC token and no
+# secret.
+#
+# ── CONFIG SOURCED FROM INFISICAL ──────────────────────────────────────────
+#   Project: lazco-cloud-cli   Path: /ci   Env-slug: staging
+#   LAZCO_CONTRACT_TOKEN        read_write API token of the staging organization "CLI Contract Test"
+#   LAZCO_CONTRACT_READ_TOKEN   read API token of the same organization
+#
+# The only GitHub-native config is the OIDC bootstrap:
+#   vars.INFISICAL_CI_IDENTITY_ID   Infisical machine-identity id
+#
+# Every job is light, so every job runs on a GitHub-hosted runner.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run type-check
+      - run: bun run test:unit
+      - run: bun run build
+      - name: Run the built package on Node 22
+        run: node dist/cli.js --version
+      - name: Compile the linux-x64 binary and start it once
+        run: |
+          TARGETS=bun-linux-x64 VERSION=0.0.0-ci bun run build:binaries
+          build/binaries/linux-x64/lazco --version
+
+  contract:
+    if: github.event_name == 'push'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # Infisical OIDC
+    # One run at a time writes to the staging organization.
+    concurrency:
+      group: contract-staging
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - run: bun install --frozen-lockfile
+      - uses: Lazco-Corporation/ci-actions/infisical-fetch@v1
+        with:
+          project-slug: lazco-cloud-cli
+          env-slug: staging
+          identity-id: ${{ vars.INFISICAL_CI_IDENTITY_ID }}
+          required-keys: LAZCO_CONTRACT_TOKEN,LAZCO_CONTRACT_READ_TOKEN
+      - run: bun run test:contract
