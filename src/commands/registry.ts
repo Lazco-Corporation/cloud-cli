@@ -1,4 +1,5 @@
 import { AUTH_COMMANDS } from "./auth";
+import { MCP_COMMANDS } from "./mcp";
 import { PROFILE_COMMANDS } from "./profile";
 import type { HandwrittenCommand } from "./types";
 
@@ -9,4 +10,5 @@ import type { HandwrittenCommand } from "./types";
 export const HANDWRITTEN_COMMANDS: readonly HandwrittenCommand[] = [
   ...AUTH_COMMANDS,
   ...PROFILE_COMMANDS,
+  ...MCP_COMMANDS,
 ];

@@ -79,6 +79,15 @@ export class SpecSource {
     return this.current;
   }
 
+  /**
+   * Checks the spec by ETag whatever its age and however often this run
+   * asked, for a long-running process such as the MCP server.
+   */
+  async revalidate(): Promise<LoadedSpec> {
+    this.current = await this.check(await this.readEntry());
+    return this.current;
+  }
+
   private async check(entry: CacheEntry | undefined): Promise<LoadedSpec> {
     this.checkedThisRun = true;
     const client = this.options.client;

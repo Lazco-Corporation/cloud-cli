@@ -1,5 +1,8 @@
+import type Ajv2020 from "ajv/dist/2020.js";
 import type { OperationKind } from "../core/generate/annotation";
 import type { ApiClient } from "../core/request/client";
+import type { Clock } from "../core/request/clock";
+import type { InputValidator } from "../core/request/validate";
 import type { JsonSchema } from "../core/spec/types";
 import type { Keychain } from "../credentials/keychain";
 import type { Session } from "../credentials/session";
@@ -10,19 +13,38 @@ export type HandwrittenContext = {
   io: Io;
   flags: GlobalFlags;
   configPath: string;
+  /** The `lazco` cache root. */
+  cacheDirectory: string;
   keychain: Keychain;
+  version: string;
+  clock: Clock;
+  ajv: Ajv2020;
+  validator: InputValidator;
   /** The API and credential source of this run, in the order of `cli-auth`. */
   session(): Promise<Session>;
   /** The credential of the session, which then never reaches any output. */
   credential(): Promise<string>;
-  /** A client for one API URL and credential, under the process's one rate cap. */
-  client(apiUrl: string, credential: string | undefined): ApiClient;
+  /**
+   * A client for one API URL and credential, under the process's one rate
+   * cap, with the CLI's `User-Agent` unless another is given.
+   */
+  client(
+    apiUrl: string,
+    credential: string | undefined,
+    userAgent?: string | (() => string),
+  ): ApiClient;
   /** Keeps a value, such as a token being checked, out of every output. */
   addSecret(value: string): void;
 };
 
-/** What a hand-written command prints: one record, or a list as NDJSON. */
-export type HandwrittenResult = { record: unknown } | { list: readonly unknown[] };
+/**
+ * What a hand-written command prints: one record, a list as NDJSON, or
+ * nothing, for a command that owns stdout itself, as `lazco mcp` does.
+ */
+export type HandwrittenResult =
+  | { record: unknown }
+  | { list: readonly unknown[] }
+  | { silent: true };
 
 /**
  * A command that wraps no API operation: sign-in, profiles and credentials,

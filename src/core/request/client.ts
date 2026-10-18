@@ -30,7 +30,8 @@ export type ClientOptions = {
   /** The API base URL, such as `https://api.lazco.tw/v1`, without a trailing slash. */
   apiUrl: string;
   credential?: string;
-  userAgent: string;
+  /** The `User-Agent`, or a function read on each request when it can change, as in MCP. */
+  userAgent: string | (() => string);
   limiter: RateLimiter;
   fetch?: typeof fetch;
   clock?: Clock;
@@ -76,7 +77,10 @@ export class ApiClient {
   publicHeaders(request: Pick<ApiRequest, "headers" | "body">): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: "application/json",
-      "User-Agent": this.options.userAgent,
+      "User-Agent":
+        typeof this.options.userAgent === "string"
+          ? this.options.userAgent
+          : this.options.userAgent(),
     };
     if (request.body !== undefined) {
       headers["Content-Type"] = "application/json";

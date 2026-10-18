@@ -1,25 +1,41 @@
+import type { OpenApiDocument } from "../../src/core/spec/types";
 import { FakeApi, json, type RecordedRequest } from "./fakeApi";
 import { loadFixture } from "./fixtures";
 
 /**
- * A fake API that serves the `surface` fixture as its spec and answers its
- * operations, for tests that run the whole CLI.
+ * What the fixture API answers. A test may change any field while the API
+ * runs, and the next request sees it.
  */
-export function fixtureApi(options: { features?: Record<string, boolean> } = {}): FakeApi {
-  const spec = loadFixture("surface");
-  const features = options.features ?? { dns: true };
+export type FixtureState = {
+  features?: Record<string, boolean>;
+  scope?: string;
+  spec?: OpenApiDocument;
+  etag?: string;
+};
+
+/**
+ * A fake API that serves the `surface` fixture as its spec and answers its
+ * operations, for tests that run the whole CLI. The spec answers 304 to an
+ * `If-None-Match` of its ETag.
+ */
+export function fixtureApi(state: FixtureState = {}): FakeApi {
+  const fixture = loadFixture("surface");
   return new FakeApi((request: RecordedRequest) => {
     const route = `${request.method} ${request.path}`;
     const query = new URLSearchParams(request.search);
     if (route === "GET /v1/spec") {
-      return json(200, spec, { etag: '"fixture"' });
+      const etag = state.etag ?? '"fixture"';
+      if (request.headers["if-none-match"] === etag) {
+        return new Response(null, { status: 304, headers: { etag } });
+      }
+      return json(200, state.spec ?? fixture, { etag });
     }
     if (route === "GET /v1/whoami") {
       return json(200, {
         organization: { id: "org-1", name: "Fixture Org" },
         role: "owner",
-        principal: { kind: "api_token", scope: "read_write", expiresAt: null },
-        features,
+        principal: { kind: "api_token", scope: state.scope ?? "read_write", expiresAt: null },
+        features: state.features ?? { dns: true },
       });
     }
     if (route === "GET /v1/servers") {

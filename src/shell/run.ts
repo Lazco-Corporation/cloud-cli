@@ -106,11 +106,15 @@ class Shell {
     this.handwritten = (options.handwritten ?? HANDWRITTEN_COMMANDS).map(handwrittenEntry);
   }
 
-  private client(apiUrl: string, credential: string | undefined): ApiClient {
+  private client(
+    apiUrl: string,
+    credential: string | undefined,
+    userAgent: string | (() => string) = `lazco-cli/${VERSION}`,
+  ): ApiClient {
     return new ApiClient({
       apiUrl,
       credential,
-      userAgent: `lazco-cli/${VERSION}`,
+      userAgent,
       limiter: this.limiter,
       fetch: this.fetchImplementation,
       clock: this.clock,
@@ -161,10 +165,15 @@ class Shell {
       io: this.io,
       flags: this.flags,
       configPath: this.configPath,
+      cacheDirectory: this.cacheDirectory,
       keychain: this.keychain,
+      version: VERSION,
+      clock: this.clock,
+      ajv: this.ajv,
+      validator: this.validator,
       session: () => this.session(),
       credential: () => this.credential(),
-      client: (apiUrl, credential) => this.client(apiUrl, credential),
+      client: (apiUrl, credential, userAgent) => this.client(apiUrl, credential, userAgent),
       addSecret: (value) => this.addSecret(value),
     };
   }
@@ -358,11 +367,10 @@ class Shell {
     const output = { human: this.flags.human, fields: this.flags.fields, secrets: this.secrets() };
     if (entry.source.type === "handwritten") {
       this.validator.check(entry.inputSchema, input);
-      writeResult(
-        this.io,
-        await entry.source.handwritten.run(input, this.handwrittenContext()),
-        output,
-      );
+      const result = await entry.source.handwritten.run(input, this.handwrittenContext());
+      if (!("silent" in result)) {
+        writeResult(this.io, result, output);
+      }
       return;
     }
     const session = await this.session();
