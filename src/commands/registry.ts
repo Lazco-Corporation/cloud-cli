@@ -1,0 +1,7 @@
+import type { HandwrittenCommand } from "./types";
+
+/**
+ * Every hand-written command. Their first words (`auth`, `profile`, `mcp`) are
+ * reserved, so the generator skips any operation that names one.
+ */
+export const HANDWRITTEN_COMMANDS: readonly HandwrittenCommand[] = [];
