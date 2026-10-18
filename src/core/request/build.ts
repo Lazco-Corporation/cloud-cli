@@ -55,7 +55,7 @@ export function prepareRequest(
   const headers: Record<string, string> = {};
   const ifMatch = input[IF_MATCH_INPUT];
   if (operation.annotation.concurrency === "etag" && typeof ifMatch === "string") {
-    headers["If-Match"] = ifMatch;
+    headers["If-Match"] = asEntityTag(ifMatch);
   }
 
   let body: unknown;
@@ -73,4 +73,13 @@ export function prepareRequest(
   }
 
   return { method: operation.method.toUpperCase(), path, query, headers, body };
+}
+
+/**
+ * An `ifMatch` as an entity tag. A bare version such as `7` gets its quotes,
+ * because `If-Match: 7` is no entity tag and never matches. A quoted tag, a
+ * weak one and `*` pass as given.
+ */
+export function asEntityTag(value: string): string {
+  return value === "*" || /^(W\/)?".*"$/.test(value) ? value : `"${value}"`;
 }

@@ -218,6 +218,30 @@ describe("ETag flow", () => {
     ]);
   });
 
+  test("the ETag read asks for no compression, so a proxy cannot make the tag weak", async () => {
+    api.handler = (request) =>
+      request.method === "GET"
+        ? json(200, { rrsets: [] }, { etag: '"43"' })
+        : json(200, { version: 44 });
+    const { run } = setup();
+    await run("dns records set", { zoneId: "z-1", rrsets: [] });
+    expect(api.requests[0]?.headers["accept-encoding"]).toBe("identity");
+  });
+
+  test("a bare ifMatch gets the quotes of an entity tag, and a quoted, weak or * one passes", async () => {
+    api.handler = () => json(200, { version: 44 });
+    const { run } = setup();
+    for (const ifMatch of ["7", '"7"', 'W/"7"', "*"]) {
+      await run("dns records set", { zoneId: "z-1", rrsets: [], ifMatch });
+    }
+    expect(api.requests.map((request) => request.headers["if-match"])).toEqual([
+      '"7"',
+      '"7"',
+      'W/"7"',
+      "*",
+    ]);
+  });
+
   test("a GET without an ETag is CLI_BAD_RESPONSE and nothing is written", async () => {
     api.handler = () => json(200, { rrsets: [] });
     const { run } = setup();

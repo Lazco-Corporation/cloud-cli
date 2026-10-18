@@ -50,9 +50,15 @@ export async function executeOperation(
 /**
  * The ETag of the resource now. It guards only the moment between this read
  * and the write, which is why an `ifMatch` the caller read earlier is better.
+ * The read asks for no compression: a proxy that compresses an answer turns
+ * its ETag weak (`W/"1"`), and `If-Match` never matches a weak tag.
  */
 async function readCurrentEtag(client: ApiClient, path: string): Promise<string> {
-  const response = await client.call({ method: "GET", path });
+  const response = await client.call({
+    method: "GET",
+    path,
+    headers: { "Accept-Encoding": "identity" },
+  });
   const etag = response.headers.get("etag");
   if (!etag) {
     throw new CliError("CLI_BAD_RESPONSE", "The API sent no ETag for the resource", {
