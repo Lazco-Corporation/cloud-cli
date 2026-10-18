@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { ApiError, CliError } from "../../src/core/errors";
 import { ApiClient, parseRetryAfter } from "../../src/core/request/client";
-import { SYSTEM_CLOCK } from "../../src/core/request/clock";
+import { MONOTONIC_CLOCK } from "../../src/core/request/clock";
 import { RateLimiter } from "../../src/core/request/rateLimiter";
 import { closedApiUrl, FakeApi, fakeClock, json } from "../helpers/fakeApi";
 
@@ -231,13 +231,14 @@ describe("API client", () => {
     const apiClient = new ApiClient({
       apiUrl: api.apiUrl,
       userAgent: "lazco-cli/test",
-      limiter: new RateLimiter(SYSTEM_CLOCK),
+      limiter: new RateLimiter(MONOTONIC_CLOCK),
     });
-    const started = performance.now();
+    // The limiter's own clock, so the measure and the spacing agree.
+    const started = MONOTONIC_CLOCK.now();
     await Promise.all(
       Array.from({ length: 40 }, () => apiClient.call({ method: "GET", path: "/x" })),
     );
-    expect(performance.now() - started).toBeGreaterThanOrEqual(3900);
+    expect(MONOTONIC_CLOCK.now() - started).toBeGreaterThanOrEqual(3900);
     const times = api.requests.map((request) => request.at).sort((left, right) => left - right);
     for (let index = 10; index < times.length; index += 1) {
       expect((times[index] as number) - (times[index - 10] as number)).toBeGreaterThanOrEqual(990);

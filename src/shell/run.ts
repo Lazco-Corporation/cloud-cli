@@ -14,7 +14,7 @@ import { CommandTree, type Resolution } from "../core/generate/tree";
 import { createAjv } from "../core/request/ajv";
 import { prepareRequest } from "../core/request/build";
 import { ApiClient, type ApiRequest } from "../core/request/client";
-import { type Clock, SYSTEM_CLOCK } from "../core/request/clock";
+import { type Clock, MONOTONIC_CLOCK, SYSTEM_CLOCK } from "../core/request/clock";
 import { type ExecuteContext, executeOperation, type Task } from "../core/request/execute";
 import type { InputProblem } from "../core/request/guard";
 import { nextPageFlag, readPage, walkPages } from "../core/request/paginate";
@@ -97,7 +97,8 @@ class Shell {
     this.activeSecrets = secrets;
     this.clock = options.clock ?? SYSTEM_CLOCK;
     this.fetchImplementation = options.fetch;
-    this.limiter = new RateLimiter(this.clock);
+    // A test clock drives the limiter too. A real run spaces requests on a clock that never jumps back.
+    this.limiter = new RateLimiter(options.clock ?? MONOTONIC_CLOCK);
     this.keychain = options.keychain ?? osKeychain();
     this.paths = options.paths ?? currentPathEnvironment();
     this.cacheDirectory = cacheRoot(this.paths);

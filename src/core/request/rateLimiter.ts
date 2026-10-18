@@ -1,4 +1,4 @@
-import { type Clock, SYSTEM_CLOCK } from "./clock";
+import { type Clock, MONOTONIC_CLOCK } from "./clock";
 
 /** At most 10 request starts a second from one process. */
 export const REQUESTS_PER_SECOND = 10;
@@ -13,17 +13,19 @@ export class RateLimiter {
   private readonly intervalMs: number;
   private nextSlot = Number.NEGATIVE_INFINITY;
 
-  constructor(clock: Clock = SYSTEM_CLOCK, requestsPerSecond = REQUESTS_PER_SECOND) {
+  constructor(clock: Clock = MONOTONIC_CLOCK, requestsPerSecond = REQUESTS_PER_SECOND) {
     this.clock = clock;
     this.intervalMs = 1000 / requestsPerSecond;
   }
 
   async acquire(): Promise<void> {
-    const now = this.clock.now();
+    let now = this.clock.now();
     const slot = Math.max(now, this.nextSlot);
     this.nextSlot = slot + this.intervalMs;
-    if (slot > now) {
+    // A timer may fire a millisecond early, so sleep again until the slot has come.
+    while (slot > now) {
       await this.clock.sleep(slot - now);
+      now = this.clock.now();
     }
   }
 }
