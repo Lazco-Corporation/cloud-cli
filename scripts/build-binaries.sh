@@ -71,8 +71,9 @@ sign_tool() {
 sign_adhoc() {
   case "$(sign_tool)" in
     rcodesign)
+      # rcodesign's own verify is documented as unreliable, so keychain.yml
+      # checks each macOS binary with Apple's codesign on a macOS runner.
       rcodesign sign "$1" >/dev/null
-      rcodesign verify "$1" >/dev/null
       ;;
     codesign)
       codesign --force --sign - "$1" 2>/dev/null
