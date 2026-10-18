@@ -39,6 +39,8 @@ export type HandwrittenContext = {
   ): ApiClient;
   /** Keeps a value, such as a token being checked, out of every output. */
   addSecret(value: string): void;
+  /** A text with every secret of this run replaced, for a notice that quotes a request's error. */
+  redact(text: string): string;
   /** Opens the URL of a browser sign-in. Resolves `false` when no browser could be started. */
   openBrowser(url: string): Promise<boolean>;
   /** How long a browser sign-in waits for its redirect. */

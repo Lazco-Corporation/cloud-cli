@@ -192,10 +192,14 @@ async function revokeOrWarn(
   refreshToken: string,
   which: string,
 ): Promise<void> {
+  context.addSecret(refreshToken);
   await revokeSignIn(oauthClient(context), apiUrl, refreshToken).catch((error: unknown) => {
+    // The OAuth client holds no credential to redact, and the API's text may echo the token.
     writeNotice(
       context.io,
-      `warning: ${which} could not be revoked (${toToolError(error).message}), so ${STILL_LISTED}`,
+      context.redact(
+        `warning: ${which} could not be revoked (${toToolError(error).message}), so ${STILL_LISTED}`,
+      ),
     );
   });
 }
@@ -325,7 +329,9 @@ async function keep(
       ? await storedRefreshToken(context, name, previous).catch((error: unknown) => {
           writeNotice(
             context.io,
-            `warning: the previous SSO sign-in of profile ${name} could not be read (${toToolError(error).message}), so it is not revoked and ${STILL_LISTED}`,
+            context.redact(
+              `warning: the previous SSO sign-in of profile ${name} could not be read (${toToolError(error).message}), so it is not revoked and ${STILL_LISTED}`,
+            ),
           );
           return undefined;
         })

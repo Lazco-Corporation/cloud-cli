@@ -58,8 +58,9 @@ function run(file, args, options = {}) {
   });
 }
 
-/** Every token issued, which no output may hold. */
-const issued = [];
+const DEVICE_CODE = "lock-proof-device-code-0123456789";
+/** Every token and code issued, which no output may hold. */
+const issued = [DEVICE_CODE];
 /** The access tokens `whoami` accepts: the newest pair's only, as after a rotation. */
 const liveAccessTokens = new Set();
 const refreshTokens = new Map();
@@ -106,7 +107,7 @@ const server = createServer((request, response) => {
       });
     } else if (route === "POST /v1/oidc/device_authorization") {
       send(response, 200, {
-        device_code: "lock-proof-device-code",
+        device_code: DEVICE_CODE,
         user_code: "BCDF-GHJK",
         verification_uri: `${origin}/issuer/device`,
         expires_in: 600,

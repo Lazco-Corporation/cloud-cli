@@ -315,6 +315,36 @@ describe("lazco auth login --sso, device", () => {
     expect(provider.requestsTo("/oidc/token")).toHaveLength(120);
   });
 
+  test("an interval of 0 still waits a second between polls", async () => {
+    const original = provider.api.handler;
+    provider.api.handler = async (request) => {
+      const answer = await original(request);
+      if (request.path !== "/v1/oidc/device_authorization") {
+        return answer;
+      }
+      return json(200, { ...((await answer.json()) as Record<string, unknown>), interval: 0 });
+    };
+    const clock = fakeClock(Date.now());
+    const run = await lazco(login("--device"), { clock });
+    expect(run.code).toBe(0);
+    expect(clock.sleeps.filter((ms) => ms >= 1000)).toEqual([1000]);
+  });
+
+  test("a token endpoint that keeps failing ends at the expiry, naming the failure", async () => {
+    const original = provider.api.handler;
+    provider.api.handler = (request) =>
+      request.path === "/v1/oidc/token"
+        ? json(503, { error: "Service unavailable", code: "UNAVAILABLE", timestamp: "t" })
+        : original(request);
+    const run = await lazco(login("--device"), { clock: fakeClock(Date.now()) });
+    expect(errorOf(run)).toMatchObject({
+      code: "CLI_TIMEOUT",
+      details: { oauthError: "expired_token" },
+    });
+    expect(errorOf(run).message).toContain("the last poll of the token endpoint failed");
+    expect(errorOf(run).message).toContain("Service unavailable");
+  });
+
   test("an expired code is CLI_TIMEOUT", async () => {
     provider.deviceAnswers = ["authorization_pending", "expired_token"];
     const run = await lazco(login("--device"), { clock: fakeClock(Date.now()) });
@@ -516,6 +546,56 @@ describe("sign-in options and logout", () => {
     expect(run.stderr).not.toContain("/dashboard/api");
     expect(keychain.entries.size).toBe(0);
     expect((await storedConfig()).profiles).toEqual({});
+  });
+
+  test("an OAuth error body of the revocation endpoint is CLI_BAD_RESPONSE with oauthError", async () => {
+    await seedKeychainProfile(provider.record({}));
+    const original = provider.api.handler;
+    provider.api.handler = (request) =>
+      request.path === "/v1/oidc/revoke"
+        ? json(400, { error: "invalid_request" })
+        : original(request);
+    const run = await lazco(["auth", "logout"]);
+    expect(errorOf(run)).toMatchObject({
+      code: "CLI_BAD_RESPONSE",
+      details: { oauthError: "invalid_request" },
+    });
+  });
+
+  test("an API error body of the revocation endpoint passes through, with the token redacted", async () => {
+    await seedKeychainProfile(provider.record({}));
+    const original = provider.api.handler;
+    // An API that echoes the token it got, in an API error body with a code.
+    provider.api.handler = (request) =>
+      request.path === "/v1/oidc/revoke"
+        ? json(400, {
+            error: `rejected ${(request.body as Record<string, string>).token}`,
+            code: "ECHO",
+            timestamp: "t",
+          })
+        : original(request);
+    const run = await lazco(["auth", "logout"]);
+    expect(errorOf(run).code).toBe("ECHO");
+    expect(run.stderr).toContain("[REDACTED]");
+  });
+
+  test("a replaced sign-in whose revocation echoes its token is warned about, redacted", async () => {
+    await seedKeychainProfile(provider.record({}));
+    const original = provider.api.handler;
+    provider.api.handler = (request) =>
+      request.path === "/v1/oidc/revoke"
+        ? json(400, {
+            error: `rejected ${(request.body as Record<string, string>).token}`,
+            code: "ECHO",
+            timestamp: "t",
+          })
+        : original(request);
+    const run = await lazco(login("--sso"));
+    expect(run.code).toBe(0);
+    expect(run.stderr).toContain(
+      "the previous SSO sign-in of profile default could not be revoked",
+    );
+    expect(run.stderr).toContain("[REDACTED]");
   });
 
   test("logout offline still forgets the profile, and fails with CLI_NETWORK", async () => {

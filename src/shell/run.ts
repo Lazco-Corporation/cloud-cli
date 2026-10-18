@@ -8,7 +8,7 @@ import {
   currentPathEnvironment,
   type PathEnvironment,
 } from "../config/paths";
-import { CliError, toToolError } from "../core/errors";
+import { CliError, redactSecrets, toToolError } from "../core/errors";
 import { describeSkip, generateSurface, type Operation } from "../core/generate/operations";
 import { CommandTree, type Resolution } from "../core/generate/tree";
 import { createAjv } from "../core/request/ajv";
@@ -203,6 +203,7 @@ class Shell {
       credential: () => this.credential(),
       client: (apiUrl, credential, userAgent) => this.client(apiUrl, credential, userAgent),
       addSecret: (value) => this.addSecret(value),
+      redact: (text) => redactSecrets(text, this.activeSecrets),
       openBrowser: (url) => this.openBrowser(url),
       loopbackTimeoutMs: this.loopbackTimeoutMs,
     };
