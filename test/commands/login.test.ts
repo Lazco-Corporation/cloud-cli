@@ -61,16 +61,42 @@ function lastLine(text: string): { error: { code: string; message: string; statu
 }
 
 describe("lazco auth login", () => {
-  test("without a terminal and without --with-token it is CLI_INVALID_INPUT", async () => {
+  test("without a terminal and without --sso or --with-token it is CLI_INVALID_INPUT naming both", async () => {
     const run = await runInProcess(["auth", "login", "--api-url", api.apiUrl], {
       env: cliEnv(home.home),
       stdin: FAKE_TOKEN,
     });
     expect(run.code).toBe(1);
     expect(run.stdout).toBe("");
-    expect(lastLine(run.stderr).error.code).toBe("CLI_INVALID_INPUT");
+    const error = lastLine(run.stderr).error;
+    expect(error.code).toBe("CLI_INVALID_INPUT");
+    expect(error.message).toContain("--sso");
+    expect(error.message).toContain("--with-token");
     expect(api.requests).toHaveLength(0);
   });
+
+  for (const flags of [
+    ["--sso", "--with-token"],
+    ["--with-token", "--device"],
+    ["--with-token", "--read-only"],
+    ["--with-token", "--org", "org-1"],
+    ["--with-token", "--switch"],
+    ["--switch", "--org", "org-1"],
+  ]) {
+    test(`${flags.join(" ")} is CLI_INVALID_INPUT, and nothing is sent or stored`, async () => {
+      const keychain = memoryKeychain();
+      const run = await runInProcess(["auth", "login", ...flags, "--api-url", api.apiUrl], {
+        env: cliEnv(home.home),
+        stdin: FAKE_TOKEN,
+        keychain,
+      });
+      expect(run.code).toBe(1);
+      expect(lastLine(run.stderr).error.code).toBe("CLI_INVALID_INPUT");
+      expect(api.requests).toHaveLength(0);
+      expect(keychain.entries.size).toBe(0);
+      expect(await configText()).toBeUndefined();
+    });
+  }
 
   test("an admin key is refused before any request, and nothing is stored", async () => {
     const keychain = memoryKeychain();
@@ -128,8 +154,10 @@ describe("lazco auth login", () => {
     expect(run.code).toBe(0);
     expect(JSON.parse(run.stdout)).toEqual({
       profile: "default",
+      method: "token",
       apiUrl: api.apiUrl,
       organization: { id: "org-1", name: "First Org" },
+      scope: "read_write",
       store: "keychain",
       current: true,
     });
@@ -145,6 +173,7 @@ describe("lazco auth login", () => {
         default: {
           apiUrl: api.apiUrl,
           organization: { id: "org-1", name: "First Org" },
+          method: "token",
           credential: {
             store: "keychain",
             account: expect.stringMatching(/^default@[0-9a-f]{16}$/),
@@ -328,13 +357,18 @@ describe("lazco auth login", () => {
     ]);
   });
 
-  test("on a terminal the token is asked for with the input hidden", async () => {
+  test("on a terminal it asks how to sign in, then for the token with the input hidden", async () => {
     const revoked = `lz_live_${"0".repeat(48)}${"dead".repeat(4)}`;
     const run = await runLazcoOnTerminal(
       ["auth", "login", "--api-url", api.apiUrl],
       cliEnv(home.home),
-      [{ after: "Paste a Lazco API token (hidden): ", type: revoked }],
+      [
+        { after: "Choose 1 or 2: ", type: "2" },
+        { after: "Paste a Lazco API token (hidden): ", type: revoked },
+      ],
     );
+    expect(run.output).toContain("1. Sign in with your browser");
+    expect(run.output).toContain("2. Paste an API token");
     expect(run.code).toBe(1);
     expect(run.output).toContain("Paste a Lazco API token (hidden): ");
     expect(run.output).not.toContain(revoked);

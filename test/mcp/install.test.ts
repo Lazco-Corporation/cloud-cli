@@ -149,6 +149,7 @@ describe("lazco mcp install", () => {
           staging: {
             apiUrl: "https://api-staging.lazco.tw/v1",
             organization: { id: "org-1", name: "Org" },
+            method: "token",
             credential: { store: "file", token: FAKE_TOKEN },
           },
         },

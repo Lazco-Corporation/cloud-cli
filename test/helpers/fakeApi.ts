@@ -25,12 +25,19 @@ export class FakeApi {
       fetch: async (request) => {
         const url = new URL(request.url);
         const text = await request.text();
+        const isForm = (request.headers.get("content-type") ?? "").startsWith(
+          "application/x-www-form-urlencoded",
+        );
         const recorded: RecordedRequest = {
           method: request.method,
           path: url.pathname,
           search: url.search,
           headers: Object.fromEntries(request.headers.entries()),
-          body: text ? JSON.parse(text) : undefined,
+          body: !text
+            ? undefined
+            : isForm
+              ? Object.fromEntries(new URLSearchParams(text))
+              : JSON.parse(text),
           at: Date.now(),
         };
         this.requests.push(recorded);
@@ -41,7 +48,11 @@ export class FakeApi {
 
   /** The base URL with `/v1`, as `--api-url` takes it. */
   get apiUrl(): string {
-    return `http://127.0.0.1:${this.server.port}/v1`;
+    return `${this.origin}/v1`;
+  }
+
+  get origin(): string {
+    return `http://127.0.0.1:${this.server.port}`;
   }
 
   stop(): void {

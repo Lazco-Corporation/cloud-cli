@@ -6,7 +6,7 @@ const list: HandwrittenCommand = {
   command: ["profile", "list"],
   summary: "List the profiles",
   description:
-    "One line per profile with its name, API URL, organization, store and whether it is current. Never its credential.",
+    "One line per profile with its name, API URL, organization, sign-in method, store and whether it is current. Never its credential.",
   kind: "read",
   positionals: [],
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -19,6 +19,7 @@ const list: HandwrittenCommand = {
           name,
           apiUrl: profile.apiUrl,
           organization: { id: profile.organization.id, name: profile.organization.name },
+          method: profile.method,
           store: profile.credential.store,
           current: config.currentProfile === name,
         })),

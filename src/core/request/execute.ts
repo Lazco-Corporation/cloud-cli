@@ -1,5 +1,6 @@
 import { ApiError, CliError } from "../errors";
 import type { Operation } from "../generate/operations";
+import { STRONG_ENTITY_TAG } from "./build";
 import { type ApiClient, type ApiRequest, requireJson } from "./client";
 import { type Clock, SYSTEM_CLOCK } from "./clock";
 import { pathValueProblem } from "./guard";
@@ -68,10 +69,12 @@ async function readCurrentEtag(client: ApiClient, path: string): Promise<string>
       url: client.url({ path }),
     });
   }
-  if (etag.startsWith("W/")) {
+  if (!STRONG_ENTITY_TAG.test(etag)) {
     throw new CliError(
       "CLI_BAD_RESPONSE",
-      "The API sent a weak ETag, which If-Match never matches",
+      etag.startsWith("W/")
+        ? "The API sent a weak ETag, which If-Match never matches"
+        : "The API sent an ETag that is no entity tag",
       {
         method: "GET",
         url: client.url({ path }),

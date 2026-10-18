@@ -3,6 +3,7 @@ import { ApiError, CliError } from "../../src/core/errors";
 import { ApiClient, parseRetryAfter } from "../../src/core/request/client";
 import { MONOTONIC_CLOCK } from "../../src/core/request/clock";
 import { RateLimiter } from "../../src/core/request/rateLimiter";
+import { staticCredential } from "../../src/credentials/credential";
 import { closedApiUrl, FakeApi, fakeClock, json } from "../helpers/fakeApi";
 
 const TOKEN = "lz_live_000000000000000000000000000000000000000000000000c0ffee00c0ffee00";
@@ -23,7 +24,7 @@ function client(options: { apiUrl?: string; timeoutMs?: number } = {}) {
     clock,
     client: new ApiClient({
       apiUrl: options.apiUrl ?? api.apiUrl,
-      credential: TOKEN,
+      credential: staticCredential(TOKEN),
       userAgent: "lazco-cli/9.9.9",
       limiter: new RateLimiter(clock),
       clock,
@@ -233,7 +234,8 @@ describe("API client", () => {
       userAgent: "lazco-cli/test",
       limiter: new RateLimiter(MONOTONIC_CLOCK),
     });
-    // The limiter's own clock, so the measure and the spacing agree.
+    // The total is measured on the limiter's own clock. The spacing below uses the
+    // fake API's arrival times, a second clock, so the two checks are independent.
     const started = MONOTONIC_CLOCK.now();
     await Promise.all(
       Array.from({ length: 40 }, () => apiClient.call({ method: "GET", path: "/x" })),

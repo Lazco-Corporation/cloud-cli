@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { CliError } from "../core/errors";
+import { ssoRecordSchema } from "../credentials/ssoRecord";
 import { writeFileAtomic } from "./atomicFile";
 
 /** A profile name starts the keychain account, so it stays short and plain. */
@@ -17,19 +18,48 @@ export const DEFAULT_PROFILE = "default";
 
 const profileNameSchema = z.string().regex(PROFILE_NAME, "is not a valid profile name");
 
+/**
+ * Where a profile's credential is: a keychain account, or the file itself.
+ * In the file, a pasted token is `token` and an SSO sign-in is `sso`.
+ */
 const credentialSchema = z.discriminatedUnion("store", [
   z.looseObject({
     store: z.literal("keychain"),
     account: z.string().regex(KEYCHAIN_ACCOUNT, "is not a valid keychain account"),
   }),
-  z.looseObject({ store: z.literal("file"), token: z.string().min(1) }),
+  z.looseObject({
+    store: z.literal("file"),
+    token: z.string().min(1).optional(),
+    sso: ssoRecordSchema.optional(),
+  }),
 ]);
 
-const profileSchema = z.looseObject({
-  apiUrl: z.url(),
-  organization: z.looseObject({ id: z.string().min(1), name: z.string() }),
-  credential: credentialSchema,
-});
+/** How a profile signed in: with a pasted API token, or with the Lazco account (SSO). */
+export const SIGN_IN_METHODS = ["token", "sso"] as const;
+export type SignInMethod = (typeof SIGN_IN_METHODS)[number];
+
+const profileSchema = z
+  .looseObject({
+    apiUrl: z.url(),
+    organization: z.looseObject({ id: z.string().min(1), name: z.string() }),
+    method: z.enum(SIGN_IN_METHODS),
+    credential: credentialSchema,
+  })
+  .superRefine((profile, context) => {
+    const credential = profile.credential;
+    if (credential.store !== "file") {
+      return;
+    }
+    const holds = profile.method === "token" ? "token" : "sso";
+    const other = profile.method === "token" ? "sso" : "token";
+    if (credential[holds] === undefined || credential[other] !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: `must hold ${holds} only, for the method ${profile.method}`,
+        path: ["credential"],
+      });
+    }
+  });
 
 const configSchema = z
   .looseObject({

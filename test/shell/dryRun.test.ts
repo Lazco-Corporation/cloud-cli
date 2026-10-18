@@ -79,7 +79,11 @@ describe("--dry-run", () => {
     );
     expect(JSON.parse(run.stdout)).toMatchObject({
       method: "PATCH",
-      ifMatchFrom: { method: "GET", url: `${api.apiUrl}/dns/zones/z-1/rrsets` },
+      ifMatchFrom: {
+        method: "GET",
+        url: `${api.apiUrl}/dns/zones/z-1/rrsets`,
+        headers: { "Accept-Encoding": "identity" },
+      },
     });
     expect(api.requests).toEqual([]);
   });

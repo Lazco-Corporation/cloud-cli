@@ -26,12 +26,19 @@ async function seed(config: Partial<Config> = {}): Promise<void> {
       default: {
         apiUrl: api.apiUrl,
         organization,
+        method: "token",
         credential: { store: "keychain", account: accountOf("default") },
       },
-      plain: { apiUrl: api.apiUrl, organization, credential: { store: "file", token: FILE_TOKEN } },
+      plain: {
+        apiUrl: api.apiUrl,
+        organization,
+        method: "token",
+        credential: { store: "file", token: FILE_TOKEN },
+      },
       staging: {
         apiUrl: STAGING_URL,
         organization,
+        method: "token",
         credential: { store: "keychain", account: accountOf("staging") },
       },
     },
@@ -72,6 +79,7 @@ describe("lazco auth status", () => {
     expect(result.code).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({
       profile: "default",
+      method: "token",
       apiUrl: api.apiUrl,
       store: "keychain",
       organization: { id: "org-1", name: "Fixture Org" },
@@ -95,7 +103,11 @@ describe("lazco auth status", () => {
     const result = await run(["--api-url", api.apiUrl, "auth", "status"], {
       LAZCO_TOKEN: FAKE_TOKEN,
     });
-    expect(JSON.parse(result.stdout)).toMatchObject({ profile: "env", store: "env" });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      profile: "env",
+      method: "token",
+      store: "env",
+    });
   });
 
   test("a refused credential prints the API's error and exits with 1", async () => {
@@ -185,9 +197,30 @@ describe("lazco profile list and profile use", () => {
     const result = await run(["profile", "list"]);
     expect(result.code).toBe(0);
     expect(ndjson(result.stdout)).toEqual([
-      { name: "default", apiUrl: api.apiUrl, organization, store: "keychain", current: true },
-      { name: "plain", apiUrl: api.apiUrl, organization, store: "file", current: false },
-      { name: "staging", apiUrl: STAGING_URL, organization, store: "keychain", current: false },
+      {
+        name: "default",
+        apiUrl: api.apiUrl,
+        organization,
+        method: "token",
+        store: "keychain",
+        current: true,
+      },
+      {
+        name: "plain",
+        apiUrl: api.apiUrl,
+        organization,
+        method: "token",
+        store: "file",
+        current: false,
+      },
+      {
+        name: "staging",
+        apiUrl: STAGING_URL,
+        organization,
+        method: "token",
+        store: "keychain",
+        current: false,
+      },
     ]);
     expect(result.stdout).not.toContain(FILE_TOKEN.slice(-8));
   });

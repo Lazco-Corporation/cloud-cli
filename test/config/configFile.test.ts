@@ -58,6 +58,7 @@ describe("the config file", () => {
         default: {
           apiUrl: "https://api.lazco.tw/v1",
           organization: { id: "org-1", name: "Org" },
+          method: "token" as const,
           credential: { store: "keychain" as const, account: "default@0123456789abcdef" },
         },
       },
@@ -110,6 +111,7 @@ describe("the config file", () => {
           staging: {
             apiUrl: "https://api-staging.lazco.tw/v1",
             organization,
+            method: "token",
             credential: { store: "keychain", account: "default@0123456789abcdef" },
           },
         },
@@ -119,6 +121,51 @@ describe("the config file", () => {
     expect(error.message).toContain("another profile");
   });
 
+  test("a profile without its sign-in method is CLI_INVALID_INPUT", async () => {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        profiles: {
+          default: {
+            apiUrl: "https://api.lazco.tw/v1",
+            organization: { id: "org-1", name: "Org" },
+            credential: { store: "file", token: "t" },
+          },
+        },
+      }),
+    );
+    const error = await invalidInput(readConfig(path));
+    expect(error.message).toContain("profiles.default.method");
+  });
+
+  for (const [label, method, credential] of [
+    ["a token profile with an SSO sign-in", "token", { store: "file", sso: {} }],
+    ["an SSO profile with a token", "sso", { store: "file", token: "t" }],
+    ["a file credential with nothing", "token", { store: "file" }],
+  ] as const) {
+    test(`${label} in the file store is CLI_INVALID_INPUT`, async () => {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          version: 1,
+          profiles: {
+            default: {
+              apiUrl: "https://api.lazco.tw/v1",
+              organization: { id: "org-1", name: "Org" },
+              method,
+              credential,
+            },
+          },
+        }),
+      );
+      const error = await invalidInput(readConfig(path));
+      expect(error.message).toContain("profiles.default.credential");
+    });
+  }
+
   test("a field of a credential that this version does not know is kept", async () => {
     const config = {
       version: 1 as const,
@@ -126,6 +173,7 @@ describe("the config file", () => {
         default: {
           apiUrl: "https://api.lazco.tw/v1",
           organization: { id: "org-1", name: "Org" },
+          method: "token" as const,
           credential: {
             store: "keychain" as const,
             account: "default@0123456789abcdef",

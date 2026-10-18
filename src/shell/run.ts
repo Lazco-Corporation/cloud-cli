@@ -14,7 +14,7 @@ import { CommandTree, type Resolution } from "../core/generate/tree";
 import { createAjv } from "../core/request/ajv";
 import { prepareRequest } from "../core/request/build";
 import { ApiClient, type ApiRequest } from "../core/request/client";
-import { type Clock, MONOTONIC_CLOCK, SYSTEM_CLOCK } from "../core/request/clock";
+import { type Clock, SYSTEM_CLOCK } from "../core/request/clock";
 import {
   ETAG_READ_ENCODING,
   type ExecuteContext,
@@ -26,8 +26,11 @@ import { nextPageFlag, readPage, walkPages } from "../core/request/paginate";
 import { RateLimiter } from "../core/request/rateLimiter";
 import { InputValidator } from "../core/request/validate";
 import { SpecSource } from "../core/spec/loader";
+import type { Credential } from "../credentials/credential";
 import { type Keychain, osKeychain } from "../credentials/keychain";
 import { resolveSession, type Session, sessionCredential } from "../credentials/session";
+import { openInBrowser } from "../sso/browser";
+import { LOOPBACK_TIMEOUT_MS } from "../sso/loopback";
 import { confirmCommand } from "./confirm";
 import { describeEntry, summarizeEntry } from "./describe";
 import { type CommandEntry, handwrittenEntry, operationEntry } from "./entries";
@@ -46,6 +49,10 @@ export type RunOptions = {
   clock?: Clock;
   paths?: PathEnvironment;
   keychain?: Keychain;
+  /** Opens the URL of a browser sign-in. Resolves `false` when no browser could be started. */
+  openBrowser?: (url: string) => Promise<boolean>;
+  /** How long a browser sign-in waits for its redirect. */
+  loopbackTimeoutMs?: number;
 };
 
 /** Runs `lazco` with its arguments and returns the exit code: 0, or 1 on any error. */
@@ -88,8 +95,10 @@ class Shell {
   private readonly configPath: string;
   private readonly cacheDirectory: string;
   private readonly paths: PathEnvironment;
+  private readonly openBrowser: (url: string) => Promise<boolean>;
+  private readonly loopbackTimeoutMs: number;
   private sessionPromise: Promise<Session> | undefined;
-  private credentialPromise: Promise<string> | undefined;
+  private credentialPromise: Promise<Credential> | undefined;
   private specSourcePromise: Promise<SpecSource> | undefined;
   private readonly ajv: Ajv2020;
   private readonly validator: InputValidator;
@@ -102,10 +111,12 @@ class Shell {
     this.activeSecrets = secrets;
     this.clock = options.clock ?? SYSTEM_CLOCK;
     this.fetchImplementation = options.fetch;
-    // A test clock drives the limiter too. A real run spaces requests on a clock that never jumps back.
-    this.limiter = new RateLimiter(options.clock ?? MONOTONIC_CLOCK);
+    // A test clock drives the limiter too. A real run keeps the limiter's own clock.
+    this.limiter = new RateLimiter(options.clock);
     this.keychain = options.keychain ?? osKeychain();
     this.paths = options.paths ?? currentPathEnvironment();
+    this.openBrowser = options.openBrowser ?? ((url) => openInBrowser(url, this.paths.platform));
+    this.loopbackTimeoutMs = options.loopbackTimeoutMs ?? LOOPBACK_TIMEOUT_MS;
     this.cacheDirectory = cacheRoot(this.paths);
     this.configPath = configFilePath(this.paths);
     this.ajv = createAjv();
@@ -115,7 +126,7 @@ class Shell {
 
   private client(
     apiUrl: string,
-    credential: string | undefined,
+    credential: Credential | undefined,
     userAgent: string | (() => string) = `lazco-cli/${VERSION}`,
   ): ApiClient {
     return new ApiClient({
@@ -139,10 +150,19 @@ class Shell {
   }
 
   /** The session's credential, read once. Throws when there is none to send. */
-  private credential(): Promise<string> {
+  private credential(): Promise<Credential> {
     this.credentialPromise ??= this.session().then(async (session) => {
-      const credential = await sessionCredential(session, this.io.env, this.keychain);
-      this.addSecret(credential);
+      const credential = await sessionCredential(session, {
+        env: this.io.env,
+        keychain: this.keychain,
+        configPath: this.configPath,
+        client: (url) => this.client(url, undefined),
+        clock: this.clock,
+        onSecret: (value) => this.addSecret(value),
+      });
+      for (const secret of credential.secrets()) {
+        this.addSecret(secret);
+      }
       return credential;
     });
     return this.credentialPromise;
@@ -183,6 +203,8 @@ class Shell {
       credential: () => this.credential(),
       client: (apiUrl, credential, userAgent) => this.client(apiUrl, credential, userAgent),
       addSecret: (value) => this.addSecret(value),
+      openBrowser: (url) => this.openBrowser(url),
+      loopbackTimeoutMs: this.loopbackTimeoutMs,
     };
   }
 
@@ -286,7 +308,7 @@ class Shell {
     if (session.source.kind === "none" || session.conflictingProfileUrl !== undefined) {
       return undefined;
     }
-    let credential: string;
+    let credential: Credential;
     try {
       credential = await this.credential();
     } catch (error) {
@@ -298,7 +320,7 @@ class Shell {
     }
     return readFeatures({
       client: this.client(session.apiUrl, credential),
-      credential,
+      cacheKey: credential.cacheKey,
       cacheDirectory: this.cacheDirectory,
       clock: this.clock,
       warn: (message) => writeNotice(this.io, `warning: ${message}`),

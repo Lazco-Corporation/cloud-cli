@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { type ApiError, CliError } from "../../src/core/errors";
 import { generateSurface, type Operation } from "../../src/core/generate/operations";
 import { createAjv } from "../../src/core/request/ajv";
-import { prepareRequest } from "../../src/core/request/build";
+import { asEntityTag, prepareRequest } from "../../src/core/request/build";
 import { ApiClient } from "../../src/core/request/client";
 import { executeOperation } from "../../src/core/request/execute";
 import { RateLimiter } from "../../src/core/request/rateLimiter";
 import { InputValidator } from "../../src/core/request/validate";
+import { staticCredential } from "../../src/credentials/credential";
 import { FakeApi, fakeClock, json, type RecordedRequest } from "../helpers/fakeApi";
 import { loadFixture } from "../helpers/fixtures";
 
@@ -32,7 +33,9 @@ function setup() {
   const clock = fakeClock();
   const client = new ApiClient({
     apiUrl: api.apiUrl,
-    credential: "lz_live_000000000000000000000000000000000000000000000000aaaaaaaaaaaaaaaa",
+    credential: staticCredential(
+      "lz_live_000000000000000000000000000000000000000000000000aaaaaaaaaaaaaaaa",
+    ),
     userAgent: "lazco-cli/test",
     limiter: new RateLimiter(clock),
     clock,
@@ -235,15 +238,21 @@ describe("ETag flow", () => {
     expect(api.requests.map((request) => request.headers["if-match"])).toEqual([undefined, '"43"']);
   });
 
-  test("a weak ETag from the read is CLI_BAD_RESPONSE and nothing is written", async () => {
-    api.handler = () => json(200, { rrsets: [] }, { etag: 'W/"43"' });
-    const { run } = setup();
-    const error = (await run("dns records set", { zoneId: "z-1", rrsets: [] }).catch(
-      (failure: unknown) => failure,
-    )) as CliError;
-    expect(error.code).toBe("CLI_BAD_RESPONSE");
-    expect(api.requests.map((request) => request.method)).toEqual(["GET"]);
-  });
+  for (const [label, etag] of [
+    ["a weak ETag", 'W/"43"'],
+    ["an ETag without quotes", "43"],
+    ["an ETag with a quote inside", '"4"3"'],
+  ] as const) {
+    test(`${label} from the read is CLI_BAD_RESPONSE and nothing is written`, async () => {
+      api.handler = () => json(200, { rrsets: [] }, { etag });
+      const { run } = setup();
+      const error = (await run("dns records set", { zoneId: "z-1", rrsets: [] }).catch(
+        (failure: unknown) => failure,
+      )) as CliError;
+      expect(error.code).toBe("CLI_BAD_RESPONSE");
+      expect(api.requests.map((request) => request.method)).toEqual(["GET"]);
+    });
+  }
 
   test("a bare ifMatch gets the quotes of an entity tag, and a quoted one or * passes", async () => {
     api.handler = () => json(200, { version: 44 });
@@ -265,7 +274,6 @@ describe("ETag flow", () => {
     ["a quote inside", '"a"b"'],
     ["a newline", "7\n8"],
     ["a space", "7 8"],
-    ["nothing", ""],
   ] as const) {
     test(`an ifMatch with ${label} is CLI_INVALID_INPUT and sends nothing`, async () => {
       const { run } = setup();
@@ -277,6 +285,11 @@ describe("ETag flow", () => {
       expect(api.requests).toHaveLength(0);
     });
   }
+
+  test("an empty ifMatch is no entity tag", () => {
+    // The generated schema refuses an empty ifMatch first, so this checks the tag rule itself.
+    expect(() => asEntityTag("")).toThrow("ifMatch is no entity tag");
+  });
 
   test("a GET without an ETag is CLI_BAD_RESPONSE and nothing is written", async () => {
     api.handler = () => json(200, { rrsets: [] });

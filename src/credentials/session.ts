@@ -1,7 +1,11 @@
 import { checkProfileName, type Profile, profileOf, readConfig } from "../config/configFile";
 import { CliError } from "../core/errors";
+import type { ApiClient } from "../core/request/client";
+import type { Clock } from "../core/request/clock";
 import { DEFAULT_API_URL } from "../shell/apiUrl";
+import { type Credential, staticCredential } from "./credential";
 import type { Keychain } from "./keychain";
+import { SsoCredential } from "./ssoCredential";
 import { loadCredential } from "./store";
 
 /** Where the credential of a command comes from. */
@@ -69,6 +73,18 @@ export async function resolveSession(options: {
   return session;
 }
 
+/** What an SSO credential needs to refresh itself. */
+export type CredentialEnvironment = {
+  env: Record<string, string | undefined>;
+  keychain: Keychain;
+  configPath: string;
+  /** A client for a full URL, without a credential. */
+  client: (url: string) => ApiClient;
+  /** Wall-clock time for the stored expiry of an access token. */
+  clock?: Clock;
+  onSecret: (value: string) => void;
+};
+
 /**
  * The credential a request of this session carries. Throws
  * `CLI_NOT_LOGGED_IN` when there is none, and `CLI_INVALID_INPUT` when
@@ -76,12 +92,12 @@ export async function resolveSession(options: {
  */
 export async function sessionCredential(
   session: Session,
-  env: Record<string, string | undefined>,
-  keychain: Keychain,
-): Promise<string> {
+  environment: CredentialEnvironment,
+): Promise<Credential> {
+  const env = environment.env;
   const source = session.source;
   if (source.kind === "env") {
-    return env.LAZCO_TOKEN as string;
+    return staticCredential(env.LAZCO_TOKEN as string);
   }
   if (source.kind === "none") {
     throw new CliError(
@@ -101,5 +117,23 @@ export async function sessionCredential(
       ],
     );
   }
-  return loadCredential(keychain, source.name, source.profile.credential);
+  const secret = await loadCredential(
+    environment.keychain,
+    source.name,
+    source.profile.method,
+    source.profile.credential,
+  );
+  if (secret.method === "token") {
+    return staticCredential(secret.token);
+  }
+  return new SsoCredential({
+    profileName: source.name,
+    configPath: environment.configPath,
+    keychain: environment.keychain,
+    apiUrl: source.profile.apiUrl,
+    record: secret.sso,
+    client: environment.client,
+    clock: environment.clock,
+    onSecret: environment.onSecret,
+  });
 }
