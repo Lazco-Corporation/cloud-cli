@@ -20,6 +20,18 @@ export function cacheRoot(paths: PathEnvironment): string {
   return join(paths.env.XDG_CACHE_HOME || join(paths.home, ".cache"), "lazco");
 }
 
+/** `config.json` of lazco: `%APPDATA%\lazco` on Windows, else `$XDG_CONFIG_HOME/lazco` or `~/.config/lazco`. */
+export function configFilePath(paths: PathEnvironment): string {
+  if (paths.platform === "win32") {
+    return join(
+      paths.env.APPDATA || join(paths.home, "AppData", "Roaming"),
+      "lazco",
+      "config.json",
+    );
+  }
+  return join(paths.env.XDG_CONFIG_HOME || join(paths.home, ".config"), "lazco", "config.json");
+}
+
 export function sha256Hex(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
