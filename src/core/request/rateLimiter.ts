@@ -19,11 +19,13 @@ export class RateLimiter {
   }
 
   async acquire(): Promise<void> {
-    const now = this.clock.now();
+    let now = this.clock.now();
     const slot = Math.max(now, this.nextSlot);
     this.nextSlot = slot + this.intervalMs;
-    if (slot > now) {
+    // A timer may fire a millisecond early, so sleep again until the slot has come.
+    while (slot > now) {
       await this.clock.sleep(slot - now);
+      now = this.clock.now();
     }
   }
 }

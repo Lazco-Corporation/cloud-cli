@@ -233,11 +233,12 @@ describe("API client", () => {
       userAgent: "lazco-cli/test",
       limiter: new RateLimiter(SYSTEM_CLOCK),
     });
-    const started = performance.now();
+    // The limiter's own clock, so a whole millisecond of Date.now() never reads as a short wait.
+    const started = SYSTEM_CLOCK.now();
     await Promise.all(
       Array.from({ length: 40 }, () => apiClient.call({ method: "GET", path: "/x" })),
     );
-    expect(performance.now() - started).toBeGreaterThanOrEqual(3900);
+    expect(SYSTEM_CLOCK.now() - started).toBeGreaterThanOrEqual(3900);
     const times = api.requests.map((request) => request.at).sort((left, right) => left - right);
     for (let index = 10; index < times.length; index += 1) {
       expect((times[index] as number) - (times[index - 10] as number)).toBeGreaterThanOrEqual(990);
