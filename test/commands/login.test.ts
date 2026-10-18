@@ -245,9 +245,47 @@ describe("lazco auth login", () => {
       expect(api.requests.map((request) => request.headers.authorization)).toEqual([
         `Bearer ${FAKE_TOKEN}`,
       ]);
+      const logout = await runInProcess(["auth", "logout"], { env: firstEnv, keychain });
+      expect(logout.code).toBe(0);
+      expect(tokensOf(keychain, "default")).toEqual([OTHER_TOKEN]);
+      otherApi.requests.length = 0;
+      const secondStatus = await runInProcess(["auth", "status"], { env: secondEnv, keychain });
+      expect(secondStatus.code).toBe(0);
+      expect(otherApi.requests.map((request) => request.headers.authorization)).toEqual([
+        `Bearer ${OTHER_TOKEN}`,
+      ]);
     } finally {
       otherApi.stop();
     }
+  });
+
+  test("an old entry that cannot be deleted is named on stderr, and the new login works", async () => {
+    const memory = memoryKeychain();
+    let refuseDeletes = false;
+    const keychain = {
+      ...memory,
+      delete: async (account: string) => {
+        if (refuseDeletes) throw new Error("the keychain is locked");
+        return memory.delete(account);
+      },
+    };
+    const env = cliEnv(home.home);
+    const login = (token: string) =>
+      runInProcess(["auth", "login", "--with-token", "--api-url", api.apiUrl], {
+        env,
+        stdin: token,
+        keychain,
+      });
+    expect((await login(FAKE_TOKEN)).code).toBe(0);
+    const [oldAccount] = [...memory.entries.keys()];
+    refuseDeletes = true;
+    const again = await login(OTHER_TOKEN);
+    expect(again.code).toBe(0);
+    expect(again.stderr).toContain(
+      `the keychain entry ${oldAccount} of the previous login could not be deleted`,
+    );
+    expect(again.stderr).not.toContain(FAKE_TOKEN.slice(-8));
+    expect(tokensOf(memory, "default").sort()).toEqual([FAKE_TOKEN, OTHER_TOKEN].sort());
   });
 
   test("logging in again without --api-url keeps the profile's own API URL", async () => {

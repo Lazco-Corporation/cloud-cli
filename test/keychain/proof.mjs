@@ -146,12 +146,19 @@ const shell = process.platform === "win32" && !/\.exe$/i.test(command);
 const lazco = (args, input) =>
   run(command, [...commandArguments, ...args, "--profile", profile], { env, input, shell });
 
+/** The profile name as a literal inside a regular expression. */
+const profilePattern = profile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 let account;
+let passed = false;
 try {
   const login = await lazco(["auth", "login", "--with-token", "--api-url", apiUrl], TOKEN);
   if (login.code !== 0) {
     fail(`login exited ${login.code}: ${login.stderr.trim()}`);
   }
+  // Read the account at once, so a later failure can still remove the entry.
+  // It is the profile name and a random suffix of this login, which the config names.
+  const configText = readFileSync(configPath, "utf8");
+  account = JSON.parse(configText).profiles[profile]?.credential?.account;
   const loggedIn = JSON.parse(login.stdout);
   console.log(`login: ${login.stdout.trim()}`);
   if (loggedIn.store !== "keychain") {
@@ -163,13 +170,13 @@ try {
   if (status.code !== 0 || JSON.parse(status.stdout).store !== "keychain") {
     fail(`auth status did not report keychain: ${status.stderr.trim()}`);
   }
-  const configText = readFileSync(configPath, "utf8");
   if (configText.includes(TOKEN.slice(-8))) {
     fail("the config file holds the token");
   }
-  // The account is the profile name and a random suffix of this login, which the config names.
-  account = JSON.parse(configText).profiles[profile]?.credential?.account;
-  if (typeof account !== "string" || !new RegExp(`^${profile}@[0-9a-f]{16}$`).test(account)) {
+  if (
+    typeof account !== "string" ||
+    !new RegExp(`^${profilePattern}@[0-9a-f]{16}$`).test(account)
+  ) {
     fail(`the config names no keychain account of ${profile}: ${configText}`);
   }
   if (!(await osToolFinds(account))) {
@@ -186,9 +193,10 @@ try {
   }
   console.log("the OS tool finds nothing after logout");
   console.log(`keychain proof: PASS on ${process.platform}-${process.arch} with ${command}`);
+  passed = true;
 } finally {
   // A proof that failed after login leaves its entry, and a random account is never found again.
-  if (process.exitCode && account && (await osToolFinds(account).catch(() => false))) {
+  if (!passed && typeof account === "string" && (await osToolFinds(account).catch(() => false))) {
     await lazco(["auth", "logout"]).catch(() => undefined);
   }
   server.close();

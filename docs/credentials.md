@@ -51,7 +51,7 @@ It has mode 0600, is written to a temporary file and renamed, and is checked wit
 - Login writes the new entry, then the config file, and only then deletes the entry of the profile's previous login.
   When the config file cannot be written, it deletes the new entry, and the old login keeps working.
 - A login that is killed halfway, or a delete of an old entry that fails, can leave an entry that no config file names.
-  List the entries with the OS's own tool, and delete the ones that no `credential.account` names: `security dump-keychain | grep -A4 tw.lazco.cli` on macOS, `secret-tool search --all service tw.lazco.cli` on Linux, and the Windows Credentials of the Credential Manager, whose names end in `.tw.lazco.cli`.
+  List the entries with the OS's own tool, and delete the ones that no `credential.account` names: `security dump-keychain | grep -A4 tw.lazco.cli` on macOS, `secret-tool search --all service tw.lazco.cli 2>&1 | grep -E '^(\[|attribute\.username)'` on Linux, which leaves out the `secret` lines that hold the tokens, and the Windows Credentials of the Credential Manager, whose names end in `.tw.lazco.cli`.
 
 - macOS uses the login keychain, Windows the Credential Manager, Linux the Secret Service.
 - Every entry pins the Linux store `secret-service`, so a token never lands in the kernel keyring, which a reboot clears.
