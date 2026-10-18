@@ -1,4 +1,4 @@
-import type Ajv2020 from "ajv/dist/2020";
+import type Ajv2020 from "ajv/dist/2020.js";
 import {
   HTTP_METHODS,
   type HttpMethod,

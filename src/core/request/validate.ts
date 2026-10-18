@@ -1,5 +1,5 @@
-import type Ajv2020 from "ajv/dist/2020";
-import type { ErrorObject, ValidateFunction } from "ajv/dist/2020";
+import type Ajv2020 from "ajv/dist/2020.js";
+import type { ErrorObject, ValidateFunction } from "ajv/dist/2020.js";
 import { CliError } from "../errors";
 import type { JsonSchema } from "../spec/types";
 import type { InputProblem } from "./guard";

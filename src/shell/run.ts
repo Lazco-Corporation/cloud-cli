@@ -1,4 +1,4 @@
-import type Ajv2020 from "ajv/dist/2020";
+import type Ajv2020 from "ajv/dist/2020.js";
 import packageJson from "../../package.json" with { type: "json" };
 import { HANDWRITTEN_COMMANDS } from "../commands/registry";
 import type { HandwrittenCommand } from "../commands/types";

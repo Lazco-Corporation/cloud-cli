@@ -1,5 +1,5 @@
-import type Ajv2020 from "ajv/dist/2020";
-import type { ErrorObject } from "ajv/dist/2020";
+import type Ajv2020 from "ajv/dist/2020.js";
+import type { ErrorObject } from "ajv/dist/2020.js";
 
 export type OperationKind = "read" | "write" | "destructive" | "spend";
 
