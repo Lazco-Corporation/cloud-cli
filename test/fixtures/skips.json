@@ -1,0 +1,100 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Fixture: every x-lazco case the core skips", "version": "1.0.0" },
+  "paths": {
+    "/v1/teleports": {
+      "post": {
+        "operationId": "teleports.create",
+        "summary": "An unknown kind",
+        "x-lazco": { "cli": "teleports create", "mcp": false, "kind": "teleport" }
+      }
+    },
+    "/v1/jobs": {
+      "post": {
+        "operationId": "jobs.create",
+        "summary": "An unknown async value",
+        "x-lazco": { "cli": "jobs create", "mcp": false, "kind": "write", "async": "job" }
+      }
+    },
+    "/v1/feeds": {
+      "get": {
+        "operationId": "feeds.list",
+        "summary": "An unknown paginate value",
+        "x-lazco": {
+          "cli": "feeds list",
+          "mcp": { "name": "feeds_list" },
+          "kind": "read",
+          "paginate": "offset"
+        }
+      }
+    },
+    "/v1/labs/pages/sites/{siteId}/deployments": {
+      "post": {
+        "operationId": "labs.pages.deployments.create",
+        "summary": "An upload this version has no uploader for",
+        "x-lazco": {
+          "cli": "labs pages deployments create",
+          "mcp": false,
+          "kind": "write",
+          "upload": "pages-deployment"
+        },
+        "parameters": [
+          { "name": "siteId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ]
+      }
+    },
+    "/v1/records/{recordId}": {
+      "put": {
+        "operationId": "records.update",
+        "summary": "concurrency etag with no GET at the same path",
+        "x-lazco": {
+          "cli": "records update",
+          "mcp": { "name": "records_update" },
+          "kind": "write",
+          "concurrency": "etag"
+        },
+        "parameters": [
+          { "name": "recordId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ]
+      }
+    },
+    "/v1/auth/tokens": {
+      "get": {
+        "operationId": "auth.tokens.list",
+        "summary": "A reserved first word",
+        "x-lazco": { "cli": "auth tokens list", "mcp": false, "kind": "read" }
+      }
+    },
+    "/v1/billing": {
+      "get": {
+        "operationId": "billing.get",
+        "summary": "A command that is also a group",
+        "x-lazco": { "cli": "billing", "mcp": { "name": "billing_get" }, "kind": "read" }
+      }
+    },
+    "/v1/billing/invoices": {
+      "get": {
+        "operationId": "billing.invoices.list",
+        "summary": "The command below the group, kept",
+        "x-lazco": {
+          "cli": "billing invoices list",
+          "mcp": { "name": "billing_list_invoices" },
+          "kind": "read"
+        }
+      }
+    },
+    "/v1/broken": {
+      "post": {
+        "operationId": "broken.create",
+        "summary": "A $ref that names nothing",
+        "x-lazco": { "cli": "broken create", "mcp": false, "kind": "write" },
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/Missing" } }
+          }
+        }
+      }
+    }
+  },
+  "components": { "schemas": {} }
+}

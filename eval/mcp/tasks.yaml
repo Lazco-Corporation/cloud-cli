@@ -1,0 +1,324 @@
+# The MCP evaluation set of `lazco mcp`: tasks in natural language that an
+# agent runs locally through an MCP client against the staging organization
+# "CLI Contract Test". It never runs in CI. `eval/mcp/run.ts` runs it and
+# grades each task. The results go into the pull request, never into the repo.
+#
+# Each task has:
+#   id       a stable name
+#   tier     `read`: lazco mcp. `write`: lazco mcp --allow-writes
+#   prompt   what a user would ask. `{run}` is a suffix unique to the run, and
+#            `{key}` a fresh OpenSSH public key
+#   tools    the tools a good run calls. A run passes only when it calls at
+#            least one of them. An empty list means a good run calls no tool
+#            that changes anything.
+#   proof    the CLI command whose output proves the answer, run with the same
+#            profile after the agent ends. Its output is one JSON value, or an
+#            array for NDJSON. Then any of:
+#              expect  a JavaScript expression of `out` that gives the text,
+#                      or a list of texts, that the answer must contain. A
+#                      nested list is a choice: any one of its texts is enough
+#              check   a JavaScript expression of `out` that must be true
+#   answer   regular expressions, without case, that the answer must match
+#   setup    what the runner makes first: createSshKey or createProject, by name
+#   cleanup  what the runner deletes after: sshKeysNamed or projectsNamed
+
+tasks:
+  - id: org-name
+    tier: read
+    prompt: Which Lazco Cloud organization am I working in?
+    tools: [whoami]
+    proof: { command: [whoami], expect: out.organization.name }
+
+  - id: org-id
+    tier: read
+    prompt: What is the id of the organization my Lazco token belongs to?
+    tools: [whoami]
+    proof: { command: [whoami], expect: out.organization.id }
+
+  - id: role
+    tier: read
+    prompt: What is my role in the current Lazco organization?
+    tools: [whoami]
+    proof: { command: [whoami], expect: out.role }
+
+  - id: token-scope
+    tier: read
+    prompt: What scope does the Lazco API token I am using have?
+    tools: [whoami]
+    proof: { command: [whoami], expect: out.principal.scope }
+
+  - id: token-expiry
+    tier: read
+    prompt: On which date does my Lazco API token expire?
+    tools: [whoami]
+    proof:
+      command: [whoami]
+      expect: "[[out.principal.expiresAt.slice(0, 10), new Date(out.principal.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }), new Date(out.principal.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })]]"
+
+  - id: other-orgs
+    tier: read
+    prompt: Besides the organization I am working in now, which other Lazco organizations am I a member of?
+    tools: [organizations_list]
+    proof:
+      command: [organizations, list]
+      expect: "out.data.map((entry) => entry.organization.name).filter((name) => name !== 'CLI Contract Test')"
+
+  - id: balance
+    tier: read
+    prompt: How much is in my Lazco account balance right now?
+    tools: [billing_get_balance, billing_get_summary]
+    proof: { command: [billing, balance, get], expect: String(out.balanceAmount) }
+
+  - id: granted-and-paid
+    tier: read
+    prompt: Of my account balance, how much was granted to me and how much did I pay myself?
+    tools: [billing_get_summary, billing_list_credit_lots]
+    proof:
+      command: [billing, summary, get]
+      expect: "[String(out.balance.granted), String(out.balance.paid)]"
+
+  - id: next-invoice
+    tier: read
+    prompt: When is my next Lazco invoice?
+    tools: [billing_get_summary]
+    proof:
+      command: [billing, summary, get]
+      expect: "[[out.nextInvoiceDate, new Date(out.nextInvoiceDate + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }), new Date(out.nextInvoiceDate + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })]]"
+
+  - id: tax-rate
+    tier: read
+    prompt: What tax rate does Lazco apply to my billing?
+    tools: [billing_get_summary, pricing_get]
+    proof:
+      command: [billing, summary, get]
+      expect: "[[`${out.taxRate}%`, `${out.taxRate} %`, `${out.taxRate} percent`]]"
+
+  - id: last-transaction
+    tier: read
+    prompt: What was the most recent transaction on my account, and for how much?
+    tools: [billing_list_transactions]
+    proof: { command: [billing, transactions, list], expect: "String(out[0].amount)" }
+
+  - id: subscription
+    tier: read
+    prompt: Do I have a Lazco subscription right now?
+    tools: [billing_get_subscription]
+    proof: { command: [billing, subscription, get], check: out.subscription === null }
+    answer: ["\\b(no|not|none|don't|do not)\\b"]
+
+  - id: regions
+    tier: read
+    prompt: In which regions can I deploy a Lazco server?
+    tools: [compute_list_regions, pricing_get]
+    proof: { command: [compute, regions, list], expect: "out.data.filter((region) => region.available).map((region) => region.slug)" }
+
+  - id: region-name
+    tier: read
+    prompt: What is the full name of the Lazco region txg1-staging, and in which country is it?
+    tools: [compute_get_region, compute_list_regions]
+    proof:
+      command: [compute, regions, list]
+      expect: "[out.data[0].name, [out.data[0].isoCode, 'Taiwan']]"
+
+  - id: plans-and-price
+    tier: read
+    prompt: Which server plans can I buy, and what does the cheapest one cost each month?
+    tools: [compute_list_plans, pricing_get]
+    proof:
+      command: [compute, plans, list]
+      expect: "[out.data[0].slug, String(Math.min(...out.data.map((plan) => plan.priceMonthlyAmount)))]"
+
+  - id: plan-ram-disk
+    tier: read
+    prompt: How much memory and how much disk does the plan vps-staging-1c1g have?
+    tools: [compute_get_plan, compute_list_plans, pricing_get]
+    proof:
+      command: [compute, plans, list]
+      expect: "[[`${out.data[0].ramMiB}`, `${out.data[0].ramMiB / 1024} GiB`, `${out.data[0].ramMiB / 1024} GB`], `${out.data[0].diskGiB}`]"
+
+  - id: plan-speed
+    tier: read
+    prompt: What is the network speed of the plan vps-staging-1c1g?
+    tools: [compute_get_plan, compute_list_plans, pricing_get]
+    proof:
+      command: [compute, plans, list]
+      expect: "[[`${out.data[0].speedMbps} Mbps`, `${out.data[0].speedMbps.toLocaleString('en-US')} Mbps`, `${out.data[0].speedMbps / 1000} Gbps`]]"
+
+  - id: plan-transfer
+    tier: read
+    prompt: How much data transfer does the plan vps-staging-1c1g include each month?
+    tools: [compute_get_plan, compute_list_plans, pricing_get]
+    proof:
+      command: [compute, plans, list]
+      expect: "[[`${out.data[0].transferGiB} GiB`, `${out.data[0].transferGiB.toLocaleString('en-US')} GiB`, `${out.data[0].transferGiB} GB`, `${out.data[0].transferGiB.toLocaleString('en-US')} GB`, `${out.data[0].transferGiB / 1000} TB`, `${out.data[0].transferGiB / 1024} TiB`]]"
+
+  - id: templates
+    tier: read
+    prompt: Which operating systems can I install on a new Lazco server?
+    tools: [compute_list_templates]
+    proof:
+      command: [compute, templates, list]
+      expect: "out.data.filter((template) => template.active).map((template) => template.name.replace(/ LTS$/, ''))"
+
+  - id: server-count
+    tier: read
+    prompt: How many servers do I have running on Lazco?
+    tools: [compute_list_servers, projects_list]
+    proof: { command: [compute, list], check: out.length === 0 }
+    answer: ["\\b(0|no|zero|none|don't|do not)\\b"]
+
+  - id: server-not-found
+    tier: read
+    prompt: Show me the details of my server 00000000-0000-4000-8000-000000000000.
+    tools: [compute_get_server]
+    answer: ["not found|does not exist|doesn't exist|no server|404|cannot find|can't find|could not find|couldn't find|no such"]
+
+  - id: ssh-keys
+    tier: read
+    prompt: Which SSH keys are saved in my Lazco account?
+    tools: [ssh_keys_list]
+    proof: { command: [ssh-keys, list], check: out.data.length === 0 }
+    answer: ["\\b(no|none|zero|0|don't|do not|empty)\\b"]
+
+  - id: projects
+    tier: read
+    prompt: How many projects does my Lazco organization have?
+    tools: [projects_list]
+    proof: { command: [projects, list], check: out.data.length === 0 }
+    answer: ["\\b(0|no|zero|none|don't|do not)\\b"]
+
+  - id: dns-limits
+    tier: read
+    prompt: How many DNS zones can my organization have, and how many record sets fit in one zone?
+    tools: [dns_get_limits]
+    proof:
+      command: [dns, limits, get]
+      expect: "[String(out.maxZones), String(out.maxRrsetsPerZone)]"
+
+  - id: dns-daily-limit
+    tier: read
+    prompt: How many DNS changes am I allowed to make in one day?
+    tools: [dns_get_limits]
+    proof: { command: [dns, limits, get], expect: String(out.dailyChangeLimit) }
+
+  - id: dns-zones
+    tier: read
+    prompt: List the DNS zones I host on Lazco.
+    tools: [dns_list_zones]
+    proof: { command: [dns, zones, list], check: out.zones.length === 0 }
+    answer: ["\\b(no|none|zero|0|don't|do not|empty)\\b"]
+
+  - id: dns-record-types
+    tier: read
+    prompt: Which DNS record types can I create in a Lazco DNS zone? List every one.
+    tools: [dns_list_record_types]
+    proof:
+      command: [dns, record-types, list]
+      expect: "out.recordTypes.map((recordType) => recordType.type)"
+
+  - id: pages-quota
+    tier: read
+    prompt: How many Pages sites can I create, and how many have I used so far?
+    tools: [labs_pages_get_entitlement]
+    proof:
+      command: [labs, pages, entitlement, get]
+      expect: "[String(out.limit), String(out.count)]"
+
+  - id: pages-buyout-price
+    tier: read
+    prompt: How much does it cost to buy out a Pages site?
+    tools: [labs_pages_get_entitlement]
+    proof: { command: [labs, pages, entitlement, get], expect: String(out.prices.siteBuyout) }
+
+  - id: pages-regions
+    tier: read
+    prompt: In which regions can a Pages site be hosted?
+    tools: [labs_pages_list_regions]
+    proof:
+      command: [labs, pages, regions, list]
+      expect: "out.data.map((region) => region.region)"
+
+  - id: payment-providers
+    tier: read
+    prompt: Which payment providers can I use to top up my Lazco balance?
+    tools: [billing_list_payment_providers, billing_list_payment_options]
+    proof: { command: [billing, payment-providers, list], expect: out.data }
+
+  - id: topup-minimum
+    tier: read
+    prompt: What is the smallest amount I can top up my Lazco balance with?
+    tools: [pricing_get, billing_list_payment_options]
+    proof: { command: [pricing, get], expect: String(out.creditTopup.minAmount) }
+
+  - id: t4-beta
+    tier: read
+    prompt: What is the status of my T4 object storage beta application?
+    tools: [t4_get_beta]
+    proof: { command: [t4, beta, get], check: out.status === 'none' }
+    answer: ["none|not applied|no application|haven't applied|have not applied|not submitted|not yet|never applied"]
+
+  - id: support-tickets
+    tier: read
+    prompt: Do I have any open support tickets with Lazco?
+    tools: [support_list_tickets, support_get_ticket_stats]
+    proof: { command: [support, tickets, list], check: out.length === 0 }
+    answer: ["\\b(no|none|zero|0|don't|do not)\\b"]
+
+  - id: read-session-refuses-write
+    tier: read
+    prompt: "Save this SSH public key in my Lazco account under the name eval-refused-{run}: {key}"
+    tools: []
+    proof:
+      command: [ssh-keys, list]
+      check: "!out.data.some((key) => key.name === 'eval-refused-{run}')"
+    answer: ["allow-writes|read[- ]only|cannot|can't|unable|not able|no tool|isn't available|is not available|not available"]
+    cleanup: { sshKeysNamed: ["eval-refused-{run}"] }
+
+  - id: ssh-key-create
+    tier: write
+    prompt: "Save this SSH public key in my Lazco account under the name eval-key-{run}: {key}"
+    tools: [ssh_keys_create]
+    proof:
+      command: [ssh-keys, list]
+      check: "out.data.some((key) => key.name === 'eval-key-{run}')"
+    cleanup: { sshKeysNamed: ["eval-key-{run}"] }
+
+  - id: ssh-key-delete
+    tier: write
+    prompt: Delete the SSH key named eval-delete-{run} from my Lazco account.
+    tools: [ssh_keys_delete]
+    setup: { createSshKey: "eval-delete-{run}" }
+    proof:
+      command: [ssh-keys, list]
+      check: "!out.data.some((key) => key.name === 'eval-delete-{run}')"
+    cleanup: { sshKeysNamed: ["eval-delete-{run}"] }
+
+  - id: project-create
+    tier: write
+    prompt: Create a Lazco project named eval-project-{run} with the description "MCP evaluation".
+    tools: [projects_create]
+    proof:
+      command: [projects, list]
+      check: "out.data.some((project) => project.name === 'eval-project-{run}' && project.description === 'MCP evaluation')"
+    cleanup: { projectsNamed: ["eval-project-{run}"] }
+
+  - id: project-rename
+    tier: write
+    prompt: Rename my Lazco project eval-rename-{run} to eval-renamed-{run}.
+    tools: [projects_update]
+    setup: { createProject: "eval-rename-{run}" }
+    proof:
+      command: [projects, list]
+      check: "out.data.some((project) => project.name === 'eval-renamed-{run}') && !out.data.some((project) => project.name === 'eval-rename-{run}')"
+    cleanup: { projectsNamed: ["eval-rename-{run}", "eval-renamed-{run}"] }
+
+  - id: project-delete-needs-the-cli
+    tier: write
+    prompt: Delete my Lazco project eval-keep-{run}.
+    tools: []
+    setup: { createProject: "eval-keep-{run}" }
+    proof:
+      command: [projects, list]
+      check: "out.data.some((project) => project.name === 'eval-keep-{run}')"
+    answer: ["cannot|can't|unable|not able|no tool|isn't available|is not available|not available|panel|dashboard|cli"]
+    cleanup: { projectsNamed: ["eval-keep-{run}"] }

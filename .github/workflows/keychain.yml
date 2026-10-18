@@ -1,0 +1,128 @@
+# Proves that the OS keychain works in the compiled binary and in the npm
+# package on each of the five release targets: login against a fake whoami,
+# auth status reports keychain, the OS's own tool finds the entry, and logout
+# removes it. Not on the release path, so it may use macOS and Windows runners.
+name: keychain
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/credentials/**"
+      - "scripts/build-binaries.sh"
+      - "scripts/install-rcodesign.sh"
+      - "test/keychain/**"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/keychain.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keychain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      # Every target's native keychain package, so each binary embeds its own.
+      - run: bun install --frozen-lockfile --os='*' --cpu='*'
+      - name: Install rcodesign for the macOS signatures
+        run: |
+          bash scripts/install-rcodesign.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Build the five binaries
+        run: VERSION=0.0.0-keychain-proof bun run build:binaries
+      - name: Build and pack the npm package
+        run: |
+          bun run build
+          mkdir -p build/npm
+          npm pack --pack-destination build/npm
+          mv build/npm/*.tgz build/npm/lazco-cli.tgz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: keychain-proof-builds
+          path: |
+            build/binaries/*/lazco
+            build/binaries/*/lazco.exe
+            build/npm/lazco-cli.tgz
+          if-no-files-found: error
+          retention-days: 3
+
+  prove:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: darwin-arm64
+          - runner: macos-15-intel
+            target: darwin-x64
+          - runner: ubuntu-24.04
+            target: linux-x64
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+          - runner: windows-2025
+            target: windows-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: keychain-proof-builds
+          path: build
+      - name: Install the npm package
+        run: npm install --global build/npm/lazco-cli.tgz
+      - name: Start a Secret Service
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gnome-keyring libsecret-tools dbus-daemon
+      - name: Prove the binary and the npm package
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          binary="build/binaries/$TARGET/lazco"
+          if [[ "$TARGET" == windows-* ]]; then binary="$binary.exe"; fi
+          chmod +x "$binary"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then codesign --verify --verbose "$binary"; fi
+          "$binary" --version
+          prove() {
+            if [[ "$RUNNER_OS" == "Linux" ]]; then
+              # A session bus with an unlocked keyring, as a desktop login gives.
+              dbus-run-session -- bash -c \
+                'printf keychain-proof | gnome-keyring-daemon --unlock --components=secrets >/dev/null && node test/keychain/proof.mjs "$@"' \
+                proof "$@"
+            else
+              node test/keychain/proof.mjs "$@"
+            fi
+          }
+          # Both legs run, so one failure does not hide the other's result.
+          failed=0
+          PROOF_PROFILE="keychain-proof-binary" prove "$binary" || failed=1
+          PROOF_PROFILE="keychain-proof-npm" prove lazco || failed=1
+          exit "$failed"
+      - name: Prove lazco mcp install through the Windows .cmd shims
+        if: runner.os == 'Windows'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          failed=0
+          node test/keychain/cmd-shim.mjs "build/binaries/$TARGET/lazco.exe" || failed=1
+          node test/keychain/cmd-shim.mjs lazco || failed=1
+          exit "$failed"

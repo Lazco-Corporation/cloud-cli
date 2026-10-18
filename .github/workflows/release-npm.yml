@@ -1,0 +1,215 @@
+# Tag-driven release of @lazco/cli: the npm package and the five binaries.
+#
+# Tag grammar: v<version>   e.g. v0.1.0, v0.2.0-rc.1
+#
+# The tag is created by `scripts/release.sh`, which runs `npm version`, so the
+# tag and package.json agree. npm-publish checks that again with
+# `expected-version`.
+#
+# A prerelease version (one with a `-`) goes to the `next` dist-tag, and every
+# other version to `latest`.
+#
+# `workflow_dispatch` is a dry run of the whole release, never a publish: the
+# checks, the build, the binaries kept as workflow artifacts, `npm whoami`
+# with the publish token, and npm-publish with `dry-run`.
+#
+# ── SHARED ACTIONS (ci-actions) ────────────────────────────────────────────
+# require-tag-on-main, infisical-fetch and npm-publish come from
+# Lazco-Corporation/ci-actions@v1.
+#
+# ── CONFIG SOURCED FROM INFISICAL ──────────────────────────────────────────
+#   Project: lazco-cloud-cli   Path: /ci   Env-slug: prod
+#   NPM_TOKEN   npm automation token with publish rights on @lazco
+#
+# The only GitHub-native config is the OIDC bootstrap:
+#   vars.INFISICAL_CI_IDENTITY_ID   Infisical machine-identity id
+#
+# Every job runs on a GitHub-hosted runner: a publish and a cross-compile of
+# five small binaries need no heavy runner.
+name: release-npm
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Rehearse the release without publishing. Only a v* tag publishes."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Require the commit on main
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse a publish that is not a tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          if [ "$DRY_RUN" != "true" ]; then
+            echo "::error::a manual run is a dry run only. Push a v* tag with scripts/release.sh to publish."
+            exit 1
+          fi
+      - uses: Lazco-Corporation/ci-actions/require-tag-on-main@v1
+        with:
+          repository: ${{ github.repository }}
+          sha: ${{ github.sha }}
+          ref-name: ${{ github.ref_name }}
+          token: ${{ github.token }}
+
+  release:
+    name: Build and publish
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # the GitHub release
+      id-token: write # npm provenance and Infisical OIDC
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Read the version and its dist-tag
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            version="${REF_NAME#v}"
+          else
+            version="$(node -p 'require("./package.json").version')"
+          fi
+          case "$version" in
+            *-*) dist_tag=next ;;
+            *) dist_tag=latest ;;
+          esac
+          {
+            echo "version=$version"
+            echo "dist-tag=$dist_tag"
+          } >> "$GITHUB_OUTPUT"
+
+      # Read the notes before the publish, so a missing CHANGELOG.md section stops the release early.
+      - name: Read the release notes from CHANGELOG.md
+        if: github.event_name == 'push'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: scripts/changelog-notes.sh "$VERSION" > "$RUNNER_TEMP/release-notes.md"
+
+      # Every target's native keychain package, so each binary embeds its own.
+      - run: bun install --frozen-lockfile --os='*' --cpu='*'
+      - run: bun run check
+      - run: bun run type-check
+      - run: bun run test:unit
+      - run: bun run build
+      - name: Run the built package on Node 22
+        run: node dist/cli.js --version
+
+      - name: Install rcodesign for the macOS signatures
+        run: |
+          bash scripts/install-rcodesign.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Build the five binaries
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: bun run build:binaries
+      - name: Start the linux-x64 binary once
+        run: build/binaries/linux-x64/lazco --version
+
+      - uses: Lazco-Corporation/ci-actions/infisical-fetch@v1
+        with:
+          project-slug: lazco-cloud-cli
+          env-slug: prod
+          identity-id: ${{ vars.INFISICAL_CI_IDENTITY_ID }}
+          required-keys: NPM_TOKEN
+
+      - name: Check the publish token with npm whoami
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          npmrc="$RUNNER_TEMP/whoami.npmrc"
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$npmrc"
+          NPM_CONFIG_USERCONFIG="$npmrc" npm whoami --registry https://registry.npmjs.org
+          rm -f "$npmrc"
+
+      - id: publish
+        uses: Lazco-Corporation/ci-actions/npm-publish@v1
+        with:
+          token: ${{ env.NPM_TOKEN }}
+          expected-version: ${{ steps.version.outputs.version }}
+          dist-tag: ${{ steps.version.outputs.dist-tag }}
+          package-manager: npm
+          dry-run: ${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Pack the npm package of the dry run
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          mkdir -p build/npm
+          npm pack --pack-destination build/npm
+
+      - name: Keep the archives and the npm package of the dry run
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-dry-run
+          path: |
+            build/binaries/*.tar.gz
+            build/binaries/*.zip
+            build/binaries/SHA256SUMS
+            build/npm/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+      # Also after `already-published`, so a rerun of a tag whose publish worked but whose
+      # release failed still gets its release. `gh release create` uploads to a draft
+      # first, so a run cancelled during the upload leaves a draft: it is deleted and made
+      # again. A published release is never changed, because a rebuilt archive need not
+      # match the SHA256SUMS that people may already have checked.
+      - name: Create the GitHub release
+        if: >-
+          github.event_name == 'push' &&
+          (steps.publish.outputs.result == 'published' || steps.publish.outputs.result == 'already-published')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          DIST_TAG: ${{ steps.version.outputs.dist-tag }}
+        run: |
+          set -euo pipefail
+          assets=(build/binaries/*.tar.gz build/binaries/*.zip build/binaries/SHA256SUMS)
+          if draft="$(gh release view "$TAG" --json isDraft --jq '.isDraft' 2> /dev/null)"; then
+            if [ "$draft" = "true" ]; then
+              gh release delete "$TAG" --yes
+            else
+              present="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+              for asset in "${assets[@]}"; do
+                if ! grep -qxF "$(basename "$asset")" <<< "$present"; then
+                  echo "::error::the published release $TAG lacks $(basename "$asset"). Fix it by hand: a rebuilt archive may not match its SHA256SUMS."
+                  exit 1
+                fi
+              done
+              echo "the release $TAG is already published with every asset"
+              exit 0
+            fi
+          fi
+          args=(--notes-file "$RUNNER_TEMP/release-notes.md" --generate-notes --title "$TAG")
+          if [ "$DIST_TAG" = "next" ]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$TAG" "${args[@]}" "${assets[@]}"
