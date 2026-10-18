@@ -41,9 +41,10 @@ Over SSH, on Linux without a display, or with `--device`, `lazco` prints a URL a
 
 | Option | Does |
 |---|---|
+| `--device` | Prints a URL and a code to sign in on another device, with no browser on this machine |
 | `--org <organization id>` | Preselects that organization |
 | `--read-only` | Asks for read-only access |
-| `--switch` | Picks the organization again, and signs out the previous sign-in of the profile |
+| `--switch` | Picks the organization again, and signs out the previous sign-in of the profile. When that sign-out fails, stderr says so, and the old sign-in stays in the list until you end it there |
 
 The sign-in renews itself while you use it, and ends after 30 days without use.
 You can see and end it in the signed-in products of the Cloud panel's settings.
@@ -68,7 +69,7 @@ When there is no keychain, the credential goes into the config file with mode 06
 | Command | Prints |
 |---|---|
 | `lazco auth status` | `profile`, `method`, `apiUrl`, `store`, `organization`, `role`, `scope` and `expiresAt` |
-| `lazco auth logout` | `{"profile":"<name>","loggedOut":true}`. It ends an SSO sign-in. An API token stays valid until you revoke it in the panel, and stderr names the page |
+| `lazco auth logout` | `{"profile":"<name>","loggedOut":true}`. It ends an SSO sign-in. When it cannot reach the API, it still forgets the profile, but exits with `CLI_NETWORK`, and the sign-in stays in the list until you end it there or it is unused for 30 days. An API token stays valid until you revoke it in the panel, and stderr names the page |
 | `lazco profile list` | One line per profile, never its credential |
 | `lazco profile use <name>` | Makes a profile the current one |
 

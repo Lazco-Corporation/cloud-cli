@@ -76,8 +76,12 @@ export class SsoCredential implements Credential {
   }
 
   private async current(rejected: string | undefined): Promise<SsoRecord> {
-    while (this.pending) {
-      await this.pending.catch(() => undefined);
+    // A call that comes while another one of this process refreshes takes that
+    // refresh's outcome, its error included, instead of starting one more.
+    const inFlight = this.pending;
+    if (inFlight !== undefined) {
+      await inFlight;
+      return this.current(rejected);
     }
     if (this.usable(this.record, rejected)) {
       return this.record;
@@ -112,7 +116,7 @@ export class SsoCredential implements Credential {
     if (profile?.method !== "sso") {
       throw new CliError(
         "CLI_NOT_LOGGED_IN",
-        `Profile ${profileName} was signed out by another lazco process: run lazco auth login --profile ${profileName}`,
+        `Profile ${profileName} is no longer signed in, because another lazco process signed it out or its sign-in ended: run lazco auth login --sso --profile ${profileName}`,
       );
     }
     const secret = await loadCredential(keychain, profileName, "sso", profile.credential);
@@ -146,10 +150,11 @@ export class SsoCredential implements Credential {
     });
     if (!answer.ok) {
       if (answer.error === "invalid_grant") {
-        await this.forget(stored.profile);
+        const leftover = await this.forget(stored.profile);
+        const name = this.options.profileName;
         throw new CliError(
           "CLI_NOT_LOGGED_IN",
-          `The SSO sign-in of profile ${this.options.profileName} has ended, so its credential is deleted: sign in again with lazco auth login --sso --profile ${this.options.profileName}`,
+          `The SSO sign-in of profile ${name} has ended, so its credential is deleted${leftover === undefined ? "" : `, except the keychain entry ${leftover}, which holds dead tokens and which the OS's keychain tool can delete`}: sign in again with lazco auth login --sso --profile ${name}`,
           { oauthError: answer.error },
         );
       }
@@ -198,7 +203,9 @@ export class SsoCredential implements Credential {
       });
     } catch (error) {
       const failure =
-        error instanceof CliError ? error : new CliError("CLI_INTERNAL", String(error));
+        error instanceof CliError
+          ? error
+          : new CliError("CLI_INTERNAL", error instanceof Error ? error.message : String(error));
       throw new CliError(
         failure.code,
         `${failure.message}. Sign in again with lazco auth login --sso --profile ${profileName}`,
@@ -207,16 +214,23 @@ export class SsoCredential implements Credential {
     }
   }
 
-  /** Deletes the stored credential and the profile of an ended sign-in. */
-  private async forget(profile: Profile): Promise<void> {
+  /**
+   * Deletes the stored credential and the profile of an ended sign-in. Returns
+   * the keychain account that could not be deleted, if any, for the error to name.
+   */
+  private async forget(profile: Profile): Promise<string | undefined> {
     const { profileName, configPath, keychain } = this.options;
     // The provider ended the sign-in, so an entry left behind holds dead tokens only.
-    await forgetCredential(keychain, profileName, profile.credential).catch(() => undefined);
+    const leftover = await forgetCredential(keychain, profileName, profile.credential).then(
+      () => undefined,
+      () => (profile.credential.store === "keychain" ? profile.credential.account : undefined),
+    );
     await updateConfig(configPath, (config) => {
       delete config.profiles[profileName];
       if (config.currentProfile === profileName) {
         delete config.currentProfile;
       }
     });
+    return leftover;
   }
 }

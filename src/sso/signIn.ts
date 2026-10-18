@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
 import { z } from "zod";
-import { ApiError, CliError } from "../core/errors";
+import { ApiError, CliError, toToolError } from "../core/errors";
 import type { ApiClient } from "../core/request/client";
 import type { Clock } from "../core/request/clock";
 import type { Io } from "../shell/io";
@@ -124,6 +124,7 @@ async function loopbackFlow(
   const listener = await startLoopback();
   try {
     const verifier = base64Url(randomBytes(32));
+    context.addSecret(verifier);
     const state = base64Url(randomBytes(16));
     const url = new URL(provider.authorizationEndpoint);
     const query: Record<string, string> = {
@@ -174,6 +175,7 @@ async function loopbackFlow(
     if (!code) {
       throw new CliError("CLI_BAD_RESPONSE", "The browser came back without a code");
     }
+    context.addSecret(code);
     const answer = await exchange(
       provider,
       {
@@ -203,7 +205,7 @@ const deviceAnswerSchema = z.looseObject({
   user_code: z.string().min(1),
   verification_uri: z.url(),
   expires_in: z.number().int().positive(),
-  interval: z.number().int().positive().optional(),
+  interval: z.number().int().nonnegative().optional(),
 });
 
 /** A failure of one poll that the next poll may not meet: no answer, a 429 or a 5xx. */
@@ -265,13 +267,17 @@ async function deviceFlow(
   );
 
   const deadline = context.clock.now() + device.expires_in * 1000;
-  let intervalMs = (device.interval ?? DEFAULT_POLL_INTERVAL_SECONDS) * 1000;
+  // At least a second apart, whatever interval the provider names.
+  let intervalMs = Math.max(device.interval ?? DEFAULT_POLL_INTERVAL_SECONDS, 1) * 1000;
+  let lastFailure: string | undefined;
   for (;;) {
     await context.clock.sleep(intervalMs);
     if (context.clock.now() > deadline) {
       throw new CliError(
         "CLI_TIMEOUT",
-        `The code was not entered within ${Math.round(device.expires_in / 60)} minutes`,
+        lastFailure === undefined
+          ? `The code was not entered within ${Math.round(device.expires_in / 60)} minutes`
+          : `The code expired, and the last poll of the token endpoint failed: ${lastFailure}`,
         { oauthError: "expired_token" },
       );
     }
@@ -285,10 +291,12 @@ async function deviceFlow(
     } catch (error) {
       // The person may be halfway through the consent, so a passing failure only skips a poll.
       if (isPassing(error)) {
+        lastFailure = toToolError(error).message;
         continue;
       }
       throw error;
     }
+    lastFailure = undefined;
     if (!("error" in answer)) {
       return answer;
     }

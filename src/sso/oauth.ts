@@ -8,7 +8,13 @@ export const CLI_CLIENT_ID = "lazco-cli";
 const LOCAL_HOSTS = new Set(["127.0.0.1", "[::1]", "localhost"]);
 
 const endpoint = z.url().refine((value) => {
-  const url = new URL(value);
+  // Zod runs this check even after `url()` failed, so a value that is no URL must not throw here.
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
   return url.protocol === "https:" || (url.protocol === "http:" && LOCAL_HOSTS.has(url.hostname));
 }, "must use https://");
 
@@ -82,11 +88,18 @@ export async function postOAuthForm(
   if (response.status >= 200 && response.status < 300) {
     return { ok: true, body: requireJson(response) };
   }
-  const body = response.body as { error?: unknown; error_description?: unknown } | null;
-  if ((response.status === 400 || response.status === 401) && typeof body?.error === "string") {
+  const body = response.body as {
+    error?: unknown;
+    error_description?: unknown;
+    code?: unknown;
+  } | null;
+  // An API error body has a `code` too, and passes through as the API sent it.
+  const isOAuthError =
+    typeof body?.error === "string" && typeof body.code !== "string" && body !== null;
+  if ((response.status === 400 || response.status === 401) && isOAuthError) {
     return {
       ok: false,
-      error: body.error,
+      error: body?.error as string,
       description: typeof body?.error_description === "string" ? body.error_description : undefined,
     };
   }

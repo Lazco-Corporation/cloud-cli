@@ -58,7 +58,10 @@ function run(file, args, options = {}) {
   });
 }
 
-const accessTokens = new Set();
+/** Every token issued, which no output may hold. */
+const issued = [];
+/** The access tokens `whoami` accepts: the newest pair's only, as after a rotation. */
+const liveAccessTokens = new Set();
 const refreshTokens = new Map();
 let refreshRequests = 0;
 let revokeRequests = 0;
@@ -68,8 +71,9 @@ let origin = "";
 function mint(expiresIn) {
   const accessToken = randomBytes(32).toString("hex");
   const refreshToken = randomBytes(32).toString("base64url");
-  accessTokens.add(accessToken);
-  refreshTokens.set(refreshToken, { rotated: false });
+  issued.push(accessToken, refreshToken);
+  liveAccessTokens.add(accessToken);
+  refreshTokens.set(refreshToken, { rotated: false, accessToken });
   return {
     access_token: accessToken,
     token_type: "Bearer",
@@ -121,6 +125,8 @@ const server = createServer((request, response) => {
           return;
         }
         current.rotated = true;
+        // The pre-refresh access token stops working, so a process that kept it would fail.
+        liveAccessTokens.delete(current.accessToken);
         send(response, 200, mint(3600));
       }, 1500);
     } else if (route === "POST /v1/oidc/revoke") {
@@ -128,7 +134,7 @@ const server = createServer((request, response) => {
       send(response, 200);
     } else if (route === "GET /v1/whoami") {
       const bearer = (request.headers.authorization ?? "").replace(/^Bearer /, "");
-      if (!accessTokens.has(bearer)) {
+      if (!liveAccessTokens.has(bearer)) {
         send(response, 401, { error: "Invalid token", code: "UNAUTHORIZED" });
         return;
       }
@@ -184,20 +190,6 @@ try {
   if (refreshRequests !== 1) {
     fail(`the provider got ${refreshRequests} refresh requests, not 1`);
   }
-  for (const token of [...accessTokens, ...refreshTokens.keys()]) {
-    for (const text of [
-      login.stdout,
-      login.stderr,
-      first.stdout,
-      first.stderr,
-      second.stdout,
-      second.stderr,
-    ]) {
-      if (text.includes(token.slice(-8))) {
-        fail("a token reached the output");
-      }
-    }
-  }
 
   const logout = await lazco(["auth", "logout"]);
   if (logout.code !== 0 || revokeRequests !== 1) {
@@ -206,6 +198,13 @@ try {
     );
   }
   signedIn = false;
+  for (const token of issued) {
+    for (const result of [login, first, second, logout]) {
+      if (`${result.stdout}${result.stderr}`.includes(token.slice(-8))) {
+        fail("a token reached the output");
+      }
+    }
+  }
   console.log(`lock proof: PASS on ${process.platform}-${process.arch} with ${command}`);
 } finally {
   // A proof that failed after login leaves its keychain entry, which logout removes.

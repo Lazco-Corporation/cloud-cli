@@ -12,6 +12,8 @@ on:
     paths:
       - "src/credentials/**"
       - "src/sso/**"
+      - "src/commands/auth.ts"
+      - "src/core/request/client.ts"
       - "scripts/build-binaries.sh"
       - "scripts/install-rcodesign.sh"
       - "test/keychain/**"

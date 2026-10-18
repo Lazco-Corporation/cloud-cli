@@ -33,12 +33,17 @@ describe("the profile lock", () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
+    let entered: () => void = () => undefined;
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
     const first = withProfileLock({ configPath, profileName: "default" }, async () => {
       order.push("first in");
+      entered();
       await held;
       order.push("first out");
     });
-    await Bun.sleep(50);
+    await inside;
     const impatient = (await withProfileLock(
       { configPath, profileName: "default", waitMs: 200 },
       async () => order.push("impatient in"),
@@ -47,7 +52,9 @@ describe("the profile lock", () => {
     const second = withProfileLock({ configPath, profileName: "default" }, async () => {
       order.push("second in");
     });
-    await Bun.sleep(150);
+    // The second holder polls every 100 ms, and must still be out after a few polls.
+    await Bun.sleep(250);
+    expect(order).toEqual(["first in"]);
     release();
     await Promise.all([first, second]);
     expect(order).toEqual(["first in", "first out", "second in"]);
@@ -58,8 +65,15 @@ describe("the profile lock", () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const first = withProfileLock({ configPath, profileName: "a" }, () => held);
-    await Bun.sleep(50);
+    let entered: () => void = () => undefined;
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const first = withProfileLock({ configPath, profileName: "a" }, () => {
+      entered();
+      return held;
+    });
+    await inside;
     await withProfileLock({ configPath, profileName: "b", waitMs: 200 }, async () => undefined);
     release();
     await first;

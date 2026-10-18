@@ -38,7 +38,7 @@ export function parseSsoRecord(text: string, profileName: string): SsoRecord {
   if (!parsed.success) {
     throw new CliError(
       "CLI_INTERNAL",
-      `The keychain entry of profile ${profileName} holds no valid SSO sign-in: run lazco auth login --profile ${profileName}`,
+      `The keychain entry of profile ${profileName} holds no valid SSO sign-in: run lazco auth login --sso --profile ${profileName}`,
     );
   }
   return parsed.data;

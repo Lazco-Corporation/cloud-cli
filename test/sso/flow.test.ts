@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { createServer } from "node:http";
+import { connect } from "node:net";
 import { CliError } from "../../src/core/errors";
 import { startLoopback } from "../../src/sso/loopback";
 import { usesDeviceFlow } from "../../src/sso/signIn";
+
+/** True when this host can listen on `::1`, which the fallback test needs. */
+const IPV6_LOOPBACK = await new Promise<boolean>((resolve) => {
+  const probe = createServer();
+  probe.once("error", () => resolve(false));
+  probe.listen(0, "::1", () => probe.close(() => resolve(true)));
+});
 
 describe("the choice of flow", () => {
   const cases: Array<[string, Record<string, string>, NodeJS.Platform, boolean, boolean]> = [
@@ -41,18 +50,42 @@ describe("the loopback listener", () => {
     const query = await waiting;
     expect(Object.fromEntries(query)).toEqual({ code: "c", state: "s" });
 
+    // The listener has stopped, so the port refuses the connection.
     const again = await fetch(`${listener.redirectUri}?code=other`).catch(() => undefined);
-    expect(again === undefined || again.status === 404).toBe(true);
+    expect(again).toBeUndefined();
   });
 
-  test("falls back to ::1 when the IPv4 address cannot be bound", async () => {
-    // 192.0.2.1 (TEST-NET-1) is on no interface, so binding it fails as a missing 127.0.0.1 would.
-    const listener = await startLoopback(["192.0.2.1", "::1"]);
-    expect(listener.redirectUri).toMatch(/^http:\/\/\[::1\]:\d+\/callback$/);
+  test("a request target that is no URL gets 404, and the listener keeps waiting", async () => {
+    const listener = await startLoopback();
     const waiting = listener.callback(5000);
+    const port = new URL(listener.redirectUri).port;
+    const raw = await new Promise<string>((resolve, reject) => {
+      const socket = connect(Number(port), "127.0.0.1", () => {
+        socket.write("GET // HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+      });
+      let text = "";
+      socket.on("data", (chunk) => {
+        text += chunk.toString();
+      });
+      socket.on("end", () => resolve(text));
+      socket.on("error", reject);
+    });
+    expect(raw).toStartWith("HTTP/1.1 404");
     expect((await fetch(`${listener.redirectUri}?state=s`)).status).toBe(200);
     expect((await waiting).get("state")).toBe("s");
   });
+
+  test.skipIf(!IPV6_LOOPBACK)(
+    "falls back to ::1 when the IPv4 address cannot be bound",
+    async () => {
+      // 192.0.2.1 (TEST-NET-1) is on no interface, so binding it fails as a missing 127.0.0.1 would.
+      const listener = await startLoopback(["192.0.2.1", "::1"]);
+      expect(listener.redirectUri).toMatch(/^http:\/\/\[::1\]:\d+\/callback$/);
+      const waiting = listener.callback(5000);
+      expect((await fetch(`${listener.redirectUri}?state=s`)).status).toBe(200);
+      expect((await waiting).get("state")).toBe("s");
+    },
+  );
 
   test("no address that can be bound is CLI_INTERNAL naming --device", async () => {
     const error = (await startLoopback(["192.0.2.1"]).catch(

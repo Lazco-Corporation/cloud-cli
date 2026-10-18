@@ -170,7 +170,8 @@ export class FakeProvider {
 
   /** The browser of a person: opens the authorize URL and follows its redirect to the CLI. */
   readonly openBrowser = async (url: string): Promise<boolean> => {
-    void this.follow(url);
+    // A failed visit shows as a sign-in that never comes back, which the test then sees.
+    void this.follow(url).catch(() => undefined);
     return true;
   };
 

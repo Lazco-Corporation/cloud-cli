@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, mkdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { type Config, writeConfig } from "../../src/config/configFile";
@@ -26,18 +26,21 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  // No command of any test printed any part of a token the provider issued.
-  for (const run of outputs) {
-    for (const token of [...provider.issuedTokens(), "device-code-secret"]) {
-      for (const text of [run.stdout, run.stderr]) {
-        if (text.includes(token) || text.includes(token.slice(-8))) {
-          throw new Error(`a token reached the output: ${text}`);
+  try {
+    // No command of any test printed any part of a token the provider issued.
+    for (const run of outputs) {
+      for (const token of [...provider.issuedTokens(), "device-code-secret"]) {
+        for (const text of [run.stdout, run.stderr]) {
+          if (text.includes(token) || text.includes(token.slice(-8))) {
+            throw new Error(`a token reached the output: ${text}`);
+          }
         }
       }
     }
+  } finally {
+    provider.stop();
+    await home.cleanup();
   }
-  provider.stop();
-  await home.cleanup();
 });
 
 async function lazco(
@@ -198,6 +201,32 @@ describe("lazco auth login --sso, loopback", () => {
     expect(run.code).toBe(1);
     expect(errorOf(run).code).toBe("CLI_TIMEOUT");
     expect(provider.requestsTo("/oidc/token")).toHaveLength(0);
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "a sign-in that cannot be stored is revoked",
+    async () => {
+      await mkdir(dirname(configPath), { recursive: true, mode: 0o700 });
+      await chmod(dirname(configPath), 0o500);
+      try {
+        const run = await lazco(login("--sso"));
+        expect(run.code).toBe(1);
+        expect(provider.requestsTo("/oidc/revoke")).toHaveLength(1);
+        expect(provider.families[0]?.revoked).toBe(true);
+      } finally {
+        await chmod(dirname(configPath), 0o700);
+      }
+    },
+  );
+
+  test("an API error of an OAuth endpoint passes through with its code", async () => {
+    const original = provider.api.handler;
+    provider.api.handler = (request) =>
+      request.path === "/v1/oidc/device_authorization"
+        ? json(429, { error: "Too many requests", code: "RATE_LIMITED", timestamp: "t" })
+        : original(request);
+    const run = await lazco(login("--device"), { clock: fakeClock(Date.now()) });
+    expect(errorOf(run)).toMatchObject({ code: "RATE_LIMITED", status: 429 });
   });
 
   test("the URL is printed on stderr when no browser opens", async () => {

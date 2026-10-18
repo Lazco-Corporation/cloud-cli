@@ -182,6 +182,24 @@ function oauthClient(context: HandwrittenContext) {
   return (url: string) => context.client(url, undefined);
 }
 
+/**
+ * Revokes an SSO sign-in that this run no longer keeps, and says on stderr
+ * when that fails, because the sign-in then stays in the user's list.
+ */
+async function revokeOrWarn(
+  context: HandwrittenContext,
+  apiUrl: string,
+  refreshToken: string,
+  which: string,
+): Promise<void> {
+  await revokeSignIn(oauthClient(context), apiUrl, refreshToken).catch((error: unknown) => {
+    writeNotice(
+      context.io,
+      `warning: ${which} could not be revoked (${toToolError(error).message}), so ${STILL_LISTED}`,
+    );
+  });
+}
+
 /** A token sign-in: the pasted token, checked. */
 async function tokenSignIn(
   input: Record<string, unknown>,
@@ -231,16 +249,17 @@ async function ssoSignIn(
       addSecret: (value) => context.addSecret(value),
     },
   );
+  const unkept = "the new SSO sign-in, which is not stored,";
   let whoami: Whoami;
   try {
     whoami = await checkCredential(context, apiUrl, tokens.accessToken);
   } catch (error) {
-    await revokeSignIn(oauthClient(context), apiUrl, tokens.refreshToken).catch(() => undefined);
+    await revokeOrWarn(context, apiUrl, tokens.refreshToken, unkept);
     throw error;
   }
   const scope = grantedScope(tokens.scope);
   if (scope === undefined) {
-    await revokeSignIn(oauthClient(context), apiUrl, tokens.refreshToken).catch(() => undefined);
+    await revokeOrWarn(context, apiUrl, tokens.refreshToken, unkept);
     throw new CliError("CLI_BAD_RESPONSE", "The token endpoint granted neither read nor write", {
       scope: tokens.scope,
     });
@@ -258,7 +277,10 @@ async function ssoSignIn(
   return { secret: { method: "sso", sso }, whoami };
 }
 
-/** The refresh token of a profile's SSO sign-in, or `undefined` when there is none to revoke. */
+/**
+ * The refresh token of a profile's SSO sign-in, or `undefined` when there is
+ * none to revoke, a keychain entry that is already gone among them.
+ */
 async function storedRefreshToken(
   context: HandwrittenContext,
   name: string,
@@ -267,13 +289,70 @@ async function storedRefreshToken(
   if (profile.method !== "sso") {
     return undefined;
   }
-  const secret = await loadCredential(context.keychain, name, "sso", profile.credential);
+  let secret: Secret;
+  try {
+    secret = await loadCredential(context.keychain, name, "sso", profile.credential);
+  } catch (error) {
+    if (error instanceof CliError && error.code === "CLI_NOT_LOGGED_IN") {
+      return undefined;
+    }
+    throw error;
+  }
   if (secret.method !== "sso") {
     return undefined;
   }
   context.addSecret(secret.sso.accessToken);
   context.addSecret(secret.sso.refreshToken);
   return secret.sso.refreshToken;
+}
+
+/**
+ * Stores a checked credential as the profile, under the profile's lock, and
+ * deletes the entry of the login it replaces. Returns what that login was,
+ * with its refresh token when it was an SSO sign-in, so it can be revoked.
+ */
+async function keep(
+  context: HandwrittenContext,
+  name: string,
+  profile: { apiUrl: string; organization: Profile["organization"]; method: SignInMethod },
+  secret: Secret,
+) {
+  return withProfileLock({ configPath: context.configPath, profileName: name }, async () => {
+    // Only a holder of this lock changes the profile, so the read is current. The keychain is
+    // read before the config lock is taken, so a keychain prompt never holds up other profiles.
+    const previous = profileOf(await readConfig(context.configPath), name);
+    const previousRefreshToken = previous
+      ? await storedRefreshToken(context, name, previous).catch((error: unknown) => {
+          writeNotice(
+            context.io,
+            `warning: the previous SSO sign-in of profile ${name} could not be read (${toToolError(error).message}), so it is not revoked and ${STILL_LISTED}`,
+          );
+          return undefined;
+        })
+      : undefined;
+    const { credential, keychainError } = await storeCredential(context.keychain, name, secret);
+    const current = await updateConfig(context.configPath, (config) => {
+      config.profiles[name] = { ...profile, credential };
+      config.currentProfile ??= name;
+      return config.currentProfile === name;
+    }).catch(async (error: unknown) => {
+      // The old config still names the old entry, so the new one serves nobody.
+      await forgetCredential(context.keychain, name, credential).catch(() => undefined);
+      throw error;
+    });
+    // Only now that the config names the new entry is the old one unused.
+    if (previous) {
+      await forgetCredential(context.keychain, name, previous.credential).catch(() => {
+        if (previous.credential.store === "keychain") {
+          writeNotice(
+            context.io,
+            `warning: the keychain entry ${previous.credential.account} of the previous login could not be deleted. Delete it with the OS's keychain tool, see https://github.com/Lazco-Corporation/cloud-cli/blob/main/docs/credentials.md`,
+          );
+        }
+      });
+    }
+    return { credential, keychainError, current, previous, previousRefreshToken };
+  });
 }
 
 const login: HandwrittenCommand = {
@@ -317,49 +396,30 @@ const login: HandwrittenCommand = {
         : await ssoSignIn(input, context, apiUrl, before);
     const organization = whoami.organization;
 
-    const { credential, keychainError } = await storeCredential(context.keychain, name, secret);
-    const { current, previous, previousRefreshToken } = await withProfileLock(
-      { configPath: context.configPath, profileName: name },
-      async () => {
-        // Read again inside the lock, because another process may have refreshed or replaced it.
-        const written = await updateConfig(context.configPath, async (config) => {
-          const previous = profileOf(config, name);
-          const previousRefreshToken = previous
-            ? await storedRefreshToken(context, name, previous).catch(() => undefined)
-            : undefined;
-          config.profiles[name] = { apiUrl, organization, method, credential };
-          config.currentProfile ??= name;
-          return { current: config.currentProfile === name, previous, previousRefreshToken };
-        }).catch(async (error: unknown) => {
-          // The old config still names the old entry, so the new one serves nobody.
-          await forgetCredential(context.keychain, name, credential).catch(() => undefined);
-          throw error;
-        });
-        const previous = written.previous;
-        // Only now that the config names the new entry is the old one unused.
-        if (previous) {
-          await forgetCredential(context.keychain, name, previous.credential).catch(() => {
-            if (previous.credential.store === "keychain") {
-              writeNotice(
-                context.io,
-                `warning: the keychain entry ${previous.credential.account} of the previous login could not be deleted. Delete it with the OS's keychain tool, see https://github.com/Lazco-Corporation/cloud-cli/blob/main/docs/credentials.md`,
-              );
-            }
-          });
-        }
-        return written;
-      },
-    );
+    let stored: Awaited<ReturnType<typeof keep>>;
+    try {
+      stored = await keep(context, name, { apiUrl, organization, method }, secret);
+    } catch (error) {
+      // Nothing stores the new SSO sign-in, so it would only wait in the user's list.
+      if (secret.method === "sso") {
+        await revokeOrWarn(
+          context,
+          apiUrl,
+          secret.sso.refreshToken,
+          "the new SSO sign-in, which is not stored,",
+        );
+      }
+      throw error;
+    }
+    const { credential, keychainError, current, previous, previousRefreshToken } = stored;
 
     // A replaced SSO sign-in is revoked. A replaced API token is not, because the panel manages it.
     if (previous && previousRefreshToken !== undefined) {
-      await revokeSignIn(oauthClient(context), previous.apiUrl, previousRefreshToken).catch(
-        (error: unknown) => {
-          writeNotice(
-            context.io,
-            `warning: the previous SSO sign-in of profile ${name} could not be revoked (${toToolError(error).message}), so ${STILL_LISTED}`,
-          );
-        },
+      await revokeOrWarn(
+        context,
+        previous.apiUrl,
+        previousRefreshToken,
+        `the previous SSO sign-in of profile ${name}`,
       );
     }
     if (keychainError !== undefined) {
@@ -462,15 +522,7 @@ const logout: HandwrittenCommand = {
         }
         let revokeError: unknown;
         if (profile.method === "sso") {
-          // An entry that is already gone has nothing left to revoke.
-          const refreshToken = await storedRefreshToken(context, name, profile).catch(
-            (error: unknown) => {
-              if (error instanceof CliError && error.code === "CLI_NOT_LOGGED_IN") {
-                return undefined;
-              }
-              throw error;
-            },
-          );
+          const refreshToken = await storedRefreshToken(context, name, profile);
           if (refreshToken !== undefined) {
             revokeError = await revokeSignIn(
               oauthClient(context),

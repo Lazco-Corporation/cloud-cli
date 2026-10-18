@@ -101,6 +101,9 @@ export class ApiClient {
    * throws, such as `CLI_NOT_LOGGED_IN`.
    */
   async send(request: ApiRequest): Promise<ApiResponse> {
+    if (request.form !== undefined && request.body !== undefined) {
+      throw new CliError("CLI_INTERNAL", "A request has both a JSON body and a form body");
+    }
     try {
       const credential = request.authenticate === false ? undefined : this.options.credential;
       const bearer = await credential?.bearer();

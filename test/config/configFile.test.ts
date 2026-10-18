@@ -6,6 +6,18 @@ import { configFilePath } from "../../src/config/paths";
 import { CliError } from "../../src/core/errors";
 import { makeHome } from "../helpers/cli";
 
+/** A complete SSO record, so a case fails only on the rule it is about. */
+const VALID_SSO = {
+  signInId: "0123456789abcdef",
+  issuer: "https://cloud.lazco.tw",
+  clientId: "lazco-cli",
+  organizationId: "org-1",
+  scope: "read",
+  accessToken: "a",
+  accessTokenExpiresAt: 1,
+  refreshToken: "r",
+};
+
 let home: Awaited<ReturnType<typeof makeHome>>;
 let path: string;
 
@@ -141,7 +153,8 @@ describe("the config file", () => {
   });
 
   for (const [label, method, credential] of [
-    ["a token profile with an SSO sign-in", "token", { store: "file", sso: {} }],
+    ["a token profile with an SSO sign-in", "token", { store: "file", sso: VALID_SSO }],
+    ["an SSO profile with a token too", "sso", { store: "file", sso: VALID_SSO, token: "t" }],
     ["an SSO profile with a token", "sso", { store: "file", token: "t" }],
     ["a file credential with nothing", "token", { store: "file" }],
   ] as const) {

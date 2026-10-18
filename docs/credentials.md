@@ -84,7 +84,8 @@ So every macOS binary gets an ad-hoc signature, with `rcodesign` on Linux (`scri
 - Neither, without a terminal, or `--with-token` with `--sso` or an SSO option, or `--switch` with `--org`: `CLI_INVALID_INPUT`, before any request.
 
 It checks the new credential, the token or the SSO access token, with `GET /v1/whoami`, and stores nothing when that fails.
-An SSO sign-in that `whoami` refuses is revoked, so it is not left in the user's list.
+An SSO sign-in that `whoami` refuses, or that cannot be stored, is revoked, so it is not left in the user's list.
+When that revocation fails too, stderr says so, and the sign-in stays listed until it is revoked in the settings or unused for 30 days.
 It prints `{ "profile", "method", "apiUrl", "organization": { "id", "name" }, "scope", "store", "current" }`, with `path` when the store is `file`.
 
 `lazco auth status` prints `{ "profile", "method", "apiUrl", "store", "organization", "role", "scope", "expiresAt" }`, with `path` for the file store.
@@ -119,8 +120,8 @@ Both send `scope` `openid lazco.read lazco.write`, or `openid lazco.read` with `
 ### Loopback
 
 1. Listen on `127.0.0.1` with port 0, so the OS picks a free port, or on `::1` when IPv4 loopback is missing. Never on the name `localhost`.
-2. Open `authorization_endpoint` in the default browser, and print the URL on stderr too, with `response_type=code`, the redirect `http://127.0.0.1:<port>/callback`, a PKCE S256 challenge of a 32-byte verifier, a 16-byte random `state`, and `organization_hint` when there is one.
-3. Answer the first `GET /callback` with a small page that has no external asset, then stop listening. Any other request gets 404.
+2. Open `authorization_endpoint` in the default browser, and print the URL on stderr too, with `response_type=code`, the redirect `http://127.0.0.1:<port>/callback`, or `http://[::1]:<port>/callback` on IPv6, a PKCE S256 challenge of a 32-byte verifier, a 16-byte random `state`, and `organization_hint` when there is one.
+3. Answer the first `GET /callback` with a small page that has no external asset, then stop listening. Any other request, a target that is no URL among them, gets 404.
 4. Check that `state` matches and that `iss` equals the issuer, else `CLI_BAD_RESPONSE`, and the code is never used. An `error` such as `access_denied` is `CLI_NOT_LOGGED_IN` with `details.oauthError`.
 5. Exchange the code with the verifier, the same redirect and `device_name`.
 

@@ -16,10 +16,10 @@ function sleepFor(milliseconds: number): Promise<void> {
 }
 
 /**
- * Wall-clock time: for a value that is stored or compared with a date, such
- * as a cache time or the expiry of an access token, and for the deadline of a
- * task wait or a device sign-in, where a clock change of a few seconds only
- * moves the deadline.
+ * Wall-clock time, for a value that is stored or compared with a date, such
+ * as a cache time or the expiry of an access token. It also measures the
+ * deadline of a task wait and of a device sign-in, which a change of the
+ * system clock moves by as much.
  */
 export const SYSTEM_CLOCK: Clock = {
   now: () => Date.now(),

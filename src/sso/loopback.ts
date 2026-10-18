@@ -12,7 +12,7 @@ const DONE_PAGE = `<!doctype html>
 <head><meta charset="utf-8"><title>Lazco CLI</title></head>
 <body style="font-family: system-ui, sans-serif; margin: 3rem auto; max-width: 32rem; line-height: 1.6">
 <h1 style="font-size: 1.25rem">Return to your terminal</h1>
-<p>The Lazco CLI got the answer of your browser. You can close this tab.</p>
+<p>The Lazco CLI got the answer from your browser. You can close this tab.</p>
 <p lang="zh-Hant-TW">請回到終端機。Lazco CLI 已經收到瀏覽器的回應，你可以關閉這個分頁。</p>
 </body>
 </html>
@@ -53,6 +53,15 @@ function listen(server: Server, host: string): Promise<number> {
  */
 export const LOOPBACK_HOSTS: readonly string[] = ["127.0.0.1", "::1"];
 
+/** The URL of a request target, or `undefined` for one that is no URL, such as `//`. */
+function requestUrl(target: string | undefined): URL | undefined {
+  try {
+    return new URL(target ?? "/", "http://loopback");
+  } catch {
+    return undefined;
+  }
+}
+
 /** The host of a URL for an address, with the brackets of an IPv6 literal. */
 function urlHost(address: string): string {
   return address.includes(":") ? `[${address}]` : address;
@@ -66,8 +75,13 @@ export async function startLoopback(
   let received: URLSearchParams | undefined;
   let answered = false;
   const server = createServer((request, response) => {
-    const url = new URL(request.url ?? "/", "http://loopback");
-    if (answered || request.method !== "GET" || url.pathname !== CALLBACK_PATH) {
+    const url = requestUrl(request.url);
+    if (
+      url === undefined ||
+      answered ||
+      request.method !== "GET" ||
+      url.pathname !== CALLBACK_PATH
+    ) {
       response.writeHead(404, { "content-type": "text/plain; charset=utf-8", connection: "close" });
       response.end("Not found\n");
       return;
