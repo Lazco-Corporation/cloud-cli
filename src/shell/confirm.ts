@@ -10,7 +10,8 @@ export type ConfirmTarget = {
   confirmField: string | undefined;
 };
 
-async function ask(io: Io, question: string): Promise<string> {
+/** Asks one question on stderr and reads one line of a terminal, trimmed. */
+export async function ask(io: Io, question: string): Promise<string> {
   const prompt = createInterface({
     input: io.stdin,
     output: io.stderr as NodeJS.WritableStream,

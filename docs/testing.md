@@ -5,6 +5,7 @@
 | Unit | `test/`, except `test/contract/` | `bun run test:unit`, the pre-push hook, `.github/workflows/ci.yml` | Nothing. No network but `127.0.0.1` |
 | Contract | `test/contract/` | `bun run test:contract`, the `contract` job of `.github/workflows/ci.yml` | The two staging tokens |
 | Keychain | `test/keychain/proof.mjs` | `.github/workflows/keychain.yml` on the five targets | A runner of each OS |
+| Refresh lock | `test/keychain/lock-proof.mjs` | `.github/workflows/keychain.yml` on the five targets, for the binary and the npm package | A runner of each OS |
 | Windows `.cmd` shims of `claude` and `codex` | `test/keychain/cmd-shim.mjs` | `.github/workflows/keychain.yml` on `windows-2025` | A Windows runner |
 | MCP evaluation | `eval/mcp/` | By hand, never in CI | `pi`, a model, the staging profile |
 
@@ -14,6 +15,8 @@ They use `bun test`.
 The spec fixtures in `test/fixtures/` cover every `x-lazco` case: `test/fixtures/surface.json` holds the operations the generator keeps, and `test/fixtures/skips.json` the ones it skips.
 `test/helpers/fakeApi.ts` is an API on `127.0.0.1` that records every request.
 `test/helpers/fixtureApi.ts` serves the `surface` fixture as its spec and answers its operations, and a test may change its features, scope, spec or ETag while it runs.
+`test/helpers/fakeProvider.ts` is the OpenID provider of the SSO sign-in on `127.0.0.1`: discovery, the authorize redirect with a fake browser, the code, device and refresh grants with rotation, revocation and `whoami`. A test sets what the browser does, the answers of the device grant, the token lifetime and a delay of the refresh answer.
+No test opens a real browser: `runInProcess` passes a browser that opens nothing, unless a test passes the fake provider's.
 
 Tests that matter for a contract run the CLI as a child process (`runLazco`), or on a pseudo-terminal (`runLazcoOnTerminal`).
 The MCP tests drive the server with the SDK's `Client`: over stdio as a child process in `test/mcp/stdio.test.ts`, and in memory in `test/mcp/tools.test.ts`, with a scheduler the test ticks by hand for the 5-minute check.

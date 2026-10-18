@@ -10,9 +10,12 @@ export const WHOAMI_FRESH_MS = 10 * 60 * 1000;
 
 type WhoamiEntry = { apiUrl: string; checkedAt: number; whoami: unknown };
 
-/** The cache file of one credential, named by its hash so the file never holds it. */
-export function whoamiCachePath(cacheDirectory: string, credential: string): string {
-  return join(cacheDirectory, "whoami", `${sha256Hex(credential)}.json`);
+/**
+ * The cache file of one credential, named by the hash of its cache key, which
+ * is the token itself for an API token, so the file never holds it.
+ */
+export function whoamiCachePath(cacheDirectory: string, cacheKey: string): string {
+  return join(cacheDirectory, "whoami", `${sha256Hex(cacheKey)}.json`);
 }
 
 /**
@@ -21,13 +24,14 @@ export function whoamiCachePath(cacheDirectory: string, credential: string): str
  */
 export async function readFeatures(options: {
   client: ApiClient;
-  credential: string;
+  /** The `cacheKey` of the client's credential. */
+  cacheKey: string;
   cacheDirectory: string;
   warn: (message: string) => void;
   clock?: Clock;
 }): Promise<Record<string, boolean> | undefined> {
   const clock = options.clock ?? SYSTEM_CLOCK;
-  const path = whoamiCachePath(options.cacheDirectory, options.credential);
+  const path = whoamiCachePath(options.cacheDirectory, options.cacheKey);
   const cached = (await readJsonFile(path)) as Partial<WhoamiEntry> | undefined;
   let whoami: unknown;
   if (

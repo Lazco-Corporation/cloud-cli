@@ -31,17 +31,25 @@ beforeEach(async () => {
       default: {
         apiUrl: api.apiUrl,
         organization,
+        method: "token",
         credential: { store: "keychain", account: accountOf("default") },
       },
       staging: {
         apiUrl: api.apiUrl,
         organization,
+        method: "token",
         credential: { store: "keychain", account: accountOf("staging") },
       },
-      plain: { apiUrl: api.apiUrl, organization, credential: { store: "file", token: FILE_TOKEN } },
+      plain: {
+        apiUrl: api.apiUrl,
+        organization,
+        method: "token",
+        credential: { store: "file", token: FILE_TOKEN },
+      },
       remote: {
         apiUrl: otherApi.apiUrl,
         organization,
+        method: "token",
         credential: { store: "keychain", account: accountOf("remote") },
       },
     },

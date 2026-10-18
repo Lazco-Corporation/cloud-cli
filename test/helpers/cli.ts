@@ -5,6 +5,7 @@ import { PassThrough } from "node:stream";
 import type { HandwrittenCommand } from "../../src/commands/types";
 import { writeFileAtomic } from "../../src/config/atomicFile";
 import { sha256Hex } from "../../src/config/paths";
+import type { Clock } from "../../src/core/request/clock";
 import type { OpenApiDocument } from "../../src/core/spec/types";
 import type { Keychain } from "../../src/credentials/keychain";
 import type { Io } from "../../src/shell/io";
@@ -120,6 +121,9 @@ export async function runInProcess(
     keychain?: Keychain;
     stdin?: string;
     platform?: NodeJS.Platform;
+    clock?: Clock;
+    openBrowser?: (url: string) => Promise<boolean>;
+    loopbackTimeoutMs?: number;
   },
 ): Promise<CliRun> {
   let stdout = "";
@@ -135,6 +139,10 @@ export async function runInProcess(
   const code = await runCli(args, io, {
     handwritten: options.handwritten,
     keychain: options.keychain ?? memoryKeychain(),
+    clock: options.clock,
+    // A test never opens a real browser.
+    openBrowser: options.openBrowser ?? (async () => false),
+    loopbackTimeoutMs: options.loopbackTimeoutMs,
     paths: {
       env: options.env,
       platform: options.platform ?? process.platform,

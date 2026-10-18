@@ -7,6 +7,7 @@ import { SYSTEM_CLOCK } from "../../src/core/request/clock";
 import { RateLimiter } from "../../src/core/request/rateLimiter";
 import { InputValidator } from "../../src/core/request/validate";
 import { SpecSource } from "../../src/core/spec/loader";
+import { staticCredential } from "../../src/credentials/credential";
 import { McpSession, type Scheduler } from "../../src/mcp/server";
 import { FAKE_TOKEN } from "./cli";
 import type { FakeApi } from "./fakeApi";
@@ -59,10 +60,10 @@ export async function connectSession(
   const session = await McpSession.start({
     version: "0.0.0",
     allowWrites: options.allowWrites === true,
-    credential: FAKE_TOKEN,
+    secrets: () => [FAKE_TOKEN],
     client: new ApiClient({
       apiUrl: api.apiUrl,
-      credential: FAKE_TOKEN,
+      credential: staticCredential(FAKE_TOKEN),
       userAgent: "lazco-test",
       limiter,
     }),

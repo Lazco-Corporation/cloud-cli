@@ -1,7 +1,9 @@
 # Proves that the OS keychain works in the compiled binary and in the npm
 # package on each of the five release targets: login against a fake whoami,
 # auth status reports keychain, the OS's own tool finds the entry, and logout
-# removes it. Not on the release path, so it may use macOS and Windows runners.
+# removes it. Then proves the refresh lock of an SSO sign-in: two processes
+# of one profile make one refresh request. Not on the release path, so it may
+# use macOS and Windows runners.
 name: keychain
 
 on:
@@ -9,6 +11,9 @@ on:
   push:
     paths:
       - "src/credentials/**"
+      - "src/sso/**"
+      - "src/commands/auth.ts"
+      - "src/core/request/client.ts"
       - "scripts/build-binaries.sh"
       - "scripts/install-rcodesign.sh"
       - "test/keychain/**"
@@ -102,20 +107,23 @@ jobs:
           chmod +x "$binary"
           if [[ "$RUNNER_OS" == "macOS" ]]; then codesign --verify --verbose "$binary"; fi
           "$binary" --version
+          # prove <proof script> <lazco command...>
           prove() {
             if [[ "$RUNNER_OS" == "Linux" ]]; then
               # A session bus with an unlocked keyring, as a desktop login gives.
               dbus-run-session -- bash -c \
-                'printf keychain-proof | gnome-keyring-daemon --unlock --components=secrets >/dev/null && node test/keychain/proof.mjs "$@"' \
+                'printf keychain-proof | gnome-keyring-daemon --unlock --components=secrets >/dev/null && node "$@"' \
                 proof "$@"
             else
-              node test/keychain/proof.mjs "$@"
+              node "$@"
             fi
           }
-          # Both legs run, so one failure does not hide the other's result.
+          # Every leg runs, so one failure does not hide another's result.
           failed=0
-          PROOF_PROFILE="keychain-proof-binary" prove "$binary" || failed=1
-          PROOF_PROFILE="keychain-proof-npm" prove lazco || failed=1
+          PROOF_PROFILE="keychain-proof-binary" prove test/keychain/proof.mjs "$binary" || failed=1
+          PROOF_PROFILE="keychain-proof-npm" prove test/keychain/proof.mjs lazco || failed=1
+          PROOF_PROFILE="lock-proof-binary" prove test/keychain/lock-proof.mjs "$binary" || failed=1
+          PROOF_PROFILE="lock-proof-npm" prove test/keychain/lock-proof.mjs lazco || failed=1
           exit "$failed"
       - name: Prove lazco mcp install through the Windows .cmd shims
         if: runner.os == 'Windows'

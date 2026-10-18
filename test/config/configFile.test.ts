@@ -1,10 +1,22 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { readConfig, writeConfig } from "../../src/config/configFile";
+import { readConfig, updateConfig, writeConfig } from "../../src/config/configFile";
 import { configFilePath } from "../../src/config/paths";
 import { CliError } from "../../src/core/errors";
 import { makeHome } from "../helpers/cli";
+
+/** A complete SSO record, so a case fails only on the rule it is about. */
+const VALID_SSO = {
+  signInId: "0123456789abcdef",
+  issuer: "https://cloud.lazco.tw",
+  clientId: "lazco-cli",
+  organizationId: "org-1",
+  scope: "read",
+  accessToken: "a",
+  accessTokenExpiresAt: 1,
+  refreshToken: "r",
+};
 
 let home: Awaited<ReturnType<typeof makeHome>>;
 let path: string;
@@ -58,6 +70,7 @@ describe("the config file", () => {
         default: {
           apiUrl: "https://api.lazco.tw/v1",
           organization: { id: "org-1", name: "Org" },
+          method: "token" as const,
           credential: { store: "keychain" as const, account: "default@0123456789abcdef" },
         },
       },
@@ -110,6 +123,7 @@ describe("the config file", () => {
           staging: {
             apiUrl: "https://api-staging.lazco.tw/v1",
             organization,
+            method: "token",
             credential: { store: "keychain", account: "default@0123456789abcdef" },
           },
         },
@@ -119,6 +133,52 @@ describe("the config file", () => {
     expect(error.message).toContain("another profile");
   });
 
+  test("a profile without its sign-in method is CLI_INVALID_INPUT", async () => {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        profiles: {
+          default: {
+            apiUrl: "https://api.lazco.tw/v1",
+            organization: { id: "org-1", name: "Org" },
+            credential: { store: "file", token: "t" },
+          },
+        },
+      }),
+    );
+    const error = await invalidInput(readConfig(path));
+    expect(error.message).toContain("profiles.default.method");
+  });
+
+  for (const [label, method, credential] of [
+    ["a token profile with an SSO sign-in", "token", { store: "file", sso: VALID_SSO }],
+    ["an SSO profile with a token too", "sso", { store: "file", sso: VALID_SSO, token: "t" }],
+    ["an SSO profile with a token", "sso", { store: "file", token: "t" }],
+    ["a file credential with nothing", "token", { store: "file" }],
+  ] as const) {
+    test(`${label} in the file store is CLI_INVALID_INPUT`, async () => {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          version: 1,
+          profiles: {
+            default: {
+              apiUrl: "https://api.lazco.tw/v1",
+              organization: { id: "org-1", name: "Org" },
+              method,
+              credential,
+            },
+          },
+        }),
+      );
+      const error = await invalidInput(readConfig(path));
+      expect(error.message).toContain("profiles.default.credential");
+    });
+  }
+
   test("a field of a credential that this version does not know is kept", async () => {
     const config = {
       version: 1 as const,
@@ -126,6 +186,7 @@ describe("the config file", () => {
         default: {
           apiUrl: "https://api.lazco.tw/v1",
           organization: { id: "org-1", name: "Org" },
+          method: "token" as const,
           credential: {
             store: "keychain" as const,
             account: "default@0123456789abcdef",
@@ -136,6 +197,34 @@ describe("the config file", () => {
     };
     await writeConfig(path, config);
     expect(await readConfig(path)).toEqual(config);
+  });
+
+  test("updates at once never lose one another's write", async () => {
+    const names = Array.from({ length: 8 }, (_, index) => `p${index}`);
+    await Promise.all(
+      names.map((name) =>
+        updateConfig(path, async (config) => {
+          // A slow change, so every update reads the file before the others write.
+          await Bun.sleep(5);
+          config.profiles[name] = {
+            apiUrl: "https://api.lazco.tw/v1",
+            organization: { id: "org-1", name: "Org" },
+            method: "token",
+            credential: { store: "file", token: name },
+          };
+        }),
+      ),
+    );
+    expect(Object.keys((await readConfig(path)).profiles).sort()).toEqual(names);
+  });
+
+  test("an update whose change throws writes nothing", async () => {
+    const failed = await updateConfig(path, (config) => {
+      config.currentProfile = "x";
+      throw new Error("no");
+    }).catch((error: unknown) => error);
+    expect((failed as Error).message).toBe("no");
+    expect(await readConfig(path)).toEqual({ version: 1, profiles: {} });
   });
 
   test("an unknown version is CLI_INVALID_INPUT", async () => {

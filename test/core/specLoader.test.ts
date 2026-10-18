@@ -6,6 +6,7 @@ import { CliError } from "../../src/core/errors";
 import { ApiClient } from "../../src/core/request/client";
 import { RateLimiter } from "../../src/core/request/rateLimiter";
 import { SPEC_FRESH_MS, SpecSource } from "../../src/core/spec/loader";
+import { staticCredential } from "../../src/credentials/credential";
 import { closedApiUrl, FakeApi, fakeClock, json } from "../helpers/fakeApi";
 import { loadFixture } from "../helpers/fixtures";
 
@@ -33,7 +34,9 @@ function source(apiUrl: string, clock = fakeClock()) {
   const client = new ApiClient({
     apiUrl,
     userAgent: "lazco-cli/test",
-    credential: "lz_live_000000000000000000000000000000000000000000000000aaaaaaaaaaaaaaaa",
+    credential: staticCredential(
+      "lz_live_000000000000000000000000000000000000000000000000aaaaaaaaaaaaaaaa",
+    ),
     limiter: new RateLimiter(clock),
     clock,
   });

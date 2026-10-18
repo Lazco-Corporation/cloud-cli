@@ -1,3 +1,4 @@
+import type { Credential } from "../../credentials/credential";
 import { ApiError, CliError, redactSecrets, toToolError } from "../errors";
 import { type Clock, SYSTEM_CLOCK } from "./clock";
 import type { RateLimiter } from "./rateLimiter";
@@ -16,6 +17,8 @@ export type ApiRequest = {
   headers?: Record<string, string>;
   /** A JSON body. `undefined` sends none. */
   body?: unknown;
+  /** A form body (`application/x-www-form-urlencoded`), as an OAuth endpoint takes. Never with `body`. */
+  form?: Record<string, string>;
   /** `false` sends no credential, as for `GET /spec`. */
   authenticate?: boolean;
 };
@@ -29,7 +32,7 @@ export type ApiResponse = {
 export type ClientOptions = {
   /** The API base URL, such as `https://api.lazco.tw/v1`, without a trailing slash. */
   apiUrl: string;
-  credential?: string;
+  credential?: Credential;
   /** The `User-Agent`, or a function read on each request when it can change, as in MCP. */
   userAgent: string | (() => string);
   limiter: RateLimiter;
@@ -74,7 +77,7 @@ export class ApiClient {
   }
 
   /** The headers a request carries, without the credential. */
-  publicHeaders(request: Pick<ApiRequest, "headers" | "body">): Record<string, string> {
+  publicHeaders(request: Pick<ApiRequest, "headers" | "body" | "form">): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: "application/json",
       "User-Agent":
@@ -82,7 +85,9 @@ export class ApiClient {
           ? this.options.userAgent
           : this.options.userAgent(),
     };
-    if (request.body !== undefined) {
+    if (request.form !== undefined) {
+      headers["Content-Type"] = "application/x-www-form-urlencoded";
+    } else if (request.body !== undefined) {
       headers["Content-Type"] = "application/json";
     }
     return { ...headers, ...request.headers };
@@ -90,12 +95,24 @@ export class ApiClient {
 
   /**
    * Sends a request with the rate cap, the timeout and the retries, and returns
-   * the answer whatever its status. Throws only `CLI_NETWORK`, `CLI_TIMEOUT` or
-   * `CLI_BAD_RESPONSE`.
+   * the answer whatever its status. A 401 to an SSO access token refreshes it
+   * once and sends the request once more. Throws `CLI_NETWORK`, `CLI_TIMEOUT`
+   * or `CLI_BAD_RESPONSE`, and for an SSO credential whatever its refresh
+   * throws, such as `CLI_NOT_LOGGED_IN`.
    */
   async send(request: ApiRequest): Promise<ApiResponse> {
+    if (request.form !== undefined && request.body !== undefined) {
+      throw new CliError("CLI_INTERNAL", "A request has both a JSON body and a form body");
+    }
     try {
-      return await this.sendWithRetries(request);
+      const credential = request.authenticate === false ? undefined : this.options.credential;
+      const bearer = await credential?.bearer();
+      const response = await this.sendWithRetries(request, bearer);
+      if (response.status !== 401 || credential === undefined || bearer === undefined) {
+        return response;
+      }
+      const renewed = await credential.renewAfterUnauthorized(bearer);
+      return renewed === undefined ? response : await this.sendWithRetries(request, renewed);
     } catch (error) {
       throw this.redact(toToolError(error));
     }
@@ -111,20 +128,20 @@ export class ApiClient {
   }
 
   private redact<T>(error: T): T {
-    const credential = this.options.credential;
-    if (!credential) {
+    const secrets = this.options.credential?.secrets() ?? [];
+    if (secrets.length === 0) {
       return error;
     }
     if (error instanceof ApiError) {
-      const body = redactSecrets(error.toBody(), [credential]);
+      const body = redactSecrets(error.toBody(), secrets);
       const { status, code, message, ...fields } = body;
       return new ApiError(status as number, code, message, fields) as T;
     }
     if (error instanceof CliError) {
       return new CliError(
         error.code,
-        redactSecrets(error.message, [credential]),
-        redactSecrets(error.details, [credential]),
+        redactSecrets(error.message, secrets),
+        redactSecrets(error.details, secrets),
       ) as T;
     }
     return error;
@@ -139,13 +156,16 @@ export class ApiClient {
     );
   }
 
-  private async sendWithRetries(request: ApiRequest): Promise<ApiResponse> {
+  private async sendWithRetries(
+    request: ApiRequest,
+    bearer: string | undefined,
+  ): Promise<ApiResponse> {
     const retryable = this.isRetryable(request);
     for (let attempt = 1; ; attempt += 1) {
       const lastAttempt = !retryable || attempt >= MAX_ATTEMPTS;
       let response: ApiResponse;
       try {
-        response = await this.sendOnce(request);
+        response = await this.sendOnce(request, bearer);
       } catch (error) {
         if (lastAttempt || !(error instanceof CliError) || error.code !== "CLI_NETWORK") {
           throw error;
@@ -176,11 +196,11 @@ export class ApiClient {
     return base * (0.75 + this.random() * 0.5);
   }
 
-  private async sendOnce(request: ApiRequest): Promise<ApiResponse> {
+  private async sendOnce(request: ApiRequest, bearer: string | undefined): Promise<ApiResponse> {
     await this.options.limiter.acquire();
     const headers = this.publicHeaders(request);
-    if (request.authenticate !== false && this.options.credential) {
-      headers.Authorization = `Bearer ${this.options.credential}`;
+    if (bearer !== undefined) {
+      headers.Authorization = `Bearer ${bearer}`;
     }
     const controller = new AbortController();
     let timedOut = false;
@@ -193,7 +213,12 @@ export class ApiClient {
       const response = await this.fetchImplementation(url, {
         method: request.method.toUpperCase(),
         headers,
-        body: request.body === undefined ? undefined : JSON.stringify(request.body),
+        body:
+          request.form !== undefined
+            ? new URLSearchParams(request.form).toString()
+            : request.body === undefined
+              ? undefined
+              : JSON.stringify(request.body),
         redirect: "manual",
         signal: controller.signal,
       });

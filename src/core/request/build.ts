@@ -78,7 +78,8 @@ export function prepareRequest(
 
 /** The characters of an entity tag between its quotes (RFC 9110, `etagc`). */
 const ENTITY_TAG_CHARACTERS = "[\\x21\\x23-\\x7E\\x80-\\xFF]*";
-const STRONG_ENTITY_TAG = new RegExp(`^"${ENTITY_TAG_CHARACTERS}"$`);
+/** A strong entity tag (RFC 9110, `entity-tag` without `W/`), such as `"7"`. */
+export const STRONG_ENTITY_TAG = new RegExp(`^"${ENTITY_TAG_CHARACTERS}"$`);
 const BARE_VERSION = new RegExp(`^${ENTITY_TAG_CHARACTERS}$`);
 
 /**

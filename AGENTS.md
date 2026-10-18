@@ -47,10 +47,11 @@ The pre-push hook runs gitleaks, the check, the type check and the unit tests.
 | `src/commands/` | The hand-written commands: `auth`, `profile`, `mcp` and `mcp install` |
 | `src/mcp/` | The stdio MCP server, its tiers, and the client config writers |
 | `src/config/` | Paths, the config file and its Zod schema |
-| `src/credentials/` | The keychain store, the file store, and the credential order |
+| `src/credentials/` | The keychain store, the file store, the credential order, the SSO credential with its refresh, and the profile lock |
+| `src/sso/` | The SSO sign-in: discovery, the loopback and device flows, the OAuth requests, and revocation |
 | `test/` | Unit tests, with spec fixtures in `test/fixtures/` and a fake API on `127.0.0.1` |
 | `test/contract/` | Tests of the built CLI and the MCP server against staging |
-| `test/keychain/` | The keychain proof that `.github/workflows/keychain.yml` runs on each target |
+| `test/keychain/` | The keychain proof and the refresh lock proof that `.github/workflows/keychain.yml` runs on each target |
 | `eval/mcp/` | The MCP evaluation set and its runner |
 | `scripts/` | Install, binary build, release and hook setup scripts |
 | `docs/` | How the code works, in depth |

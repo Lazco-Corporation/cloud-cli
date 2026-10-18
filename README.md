@@ -30,32 +30,47 @@ Each [release](https://github.com/Lazco-Corporation/cloud-cli/releases) also has
 
 ## Sign in
 
-Create an API token on the API page of the Lazco Cloud panel, then:
+Sign in with your Lazco account:
 
 ```sh
-lazco auth login
+lazco auth login --sso
 ```
 
-It asks for the token without showing it, checks it, and stores it in the system keychain.
-In a script, pipe the token in instead:
+Your browser opens the Lazco Cloud sign-in. Pick the organization and the access, read only or read and write, and return to the terminal.
+Over SSH, on Linux without a display, or with `--device`, `lazco` prints a URL and a code instead. Open the URL on any device and enter the code there, and only there.
+
+| Option | Does |
+|---|---|
+| `--device` | Prints a URL and a code to sign in on another device, with no browser on this machine |
+| `--org <organization id>` | Preselects that organization |
+| `--read-only` | Asks for read-only access |
+| `--switch` | Picks the organization again, and signs out the previous sign-in of the profile. When that sign-out fails, stderr says so, and the old sign-in stays in the list until you end it there |
+
+The sign-in renews itself while you use it, and ends after 30 days without use.
+You can see and end it in the signed-in products of the Cloud panel's settings.
+
+Or sign in with an API token, which you create on the API page of the Lazco Cloud panel.
+Without a flag, `lazco auth login` asks on a terminal which way to sign in, and asks for the token without showing it.
+In a script, pipe the token in:
 
 ```sh
 printf '%s' "$TOKEN" | lazco auth login --with-token
 ```
 
-Login prints the profile, the API URL, the organization and where the token is stored:
+Login checks the credential and stores it in the system keychain.
+It prints the profile, the method, the API URL, the organization, the access and where the credential is stored:
 
 ```json
-{"profile":"default","apiUrl":"https://api.lazco.tw/v1","organization":{"id":"<uuid>","name":"<name>"},"store":"keychain","current":true}
+{"profile":"default","method":"sso","apiUrl":"https://api.lazco.tw/v1","organization":{"id":"<uuid>","name":"<name>"},"scope":"read_write","store":"keychain","current":true}
 ```
 
-When there is no keychain, the token goes into the config file with mode 0600, `store` is `file`, and `path` names the file.
+When there is no keychain, the credential goes into the config file with mode 0600, `store` is `file`, and `path` names the file.
 
 | Command | Prints |
 |---|---|
-| `lazco auth status` | `profile`, `apiUrl`, `store`, `organization`, `role`, `scope` and `expiresAt` |
-| `lazco auth logout` | `{"profile":"<name>","loggedOut":true}`. The token stays valid until you revoke it in the panel, and stderr names the page |
-| `lazco profile list` | One line per profile, never its token |
+| `lazco auth status` | `profile`, `method`, `apiUrl`, `store`, `organization`, `role`, `scope` and `expiresAt` |
+| `lazco auth logout` | `{"profile":"<name>","loggedOut":true}`. It ends an SSO sign-in. When it cannot reach the API, it still forgets the profile, but exits with `CLI_NETWORK`, and the sign-in stays in the list until you end it there or it is unused for 30 days. An API token stays valid until you revoke it in the panel, and stderr names the page |
+| `lazco profile list` | One line per profile, never its credential |
 | `lazco profile use <name>` | Makes a profile the current one |
 
 `--profile <name>` signs in or uses another profile, for example one organization each.
@@ -84,7 +99,7 @@ lazco compute create --json - < server.json --dry-run
 
 ## Use it from an MCP client
 
-`lazco mcp` is a local MCP server with the same sign-in.
+`lazco mcp` is a local MCP server with the same sign-in, and it renews an SSO sign-in as it runs.
 Add it to a client with:
 
 ```sh
@@ -92,7 +107,7 @@ lazco mcp install --client <client>
 ```
 
 `<client>` is one of `claude-code`, `claude-desktop`, `codex`, `cursor`, `devin`, `gemini`, `pi` or `vscode`.
-The entry holds the command only, never the token.
+The entry holds the command only, never a credential.
 `--profile <name>` and `--allow-writes` go into the entry, and `--dry-run` shows the entry without writing it.
 
 Without `--allow-writes` the server offers read tools only.

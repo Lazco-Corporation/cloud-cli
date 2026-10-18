@@ -148,16 +148,19 @@ beforeAll(async () => {
       "kc-normal": {
         apiUrl: normalApi.apiUrl,
         organization,
+        method: "token",
         credential: { store: "keychain", account: accountOf("kc-normal") },
       },
       "kc-echo": {
         apiUrl: echoApi.apiUrl,
         organization,
+        method: "token",
         credential: { store: "keychain", account: accountOf("kc-echo") },
       },
       "file-echo": {
         apiUrl: echoApi.apiUrl,
         organization,
+        method: "token",
         credential: { store: "file", token: FILE_TOKEN },
       },
     },

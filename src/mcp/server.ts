@@ -44,7 +44,8 @@ export const SYSTEM_SCHEDULER: Scheduler = {
 export type McpSessionOptions = {
   version: string;
   allowWrites: boolean;
-  credential: string;
+  /** Every secret of the credential so far, which no tool result may show. */
+  secrets: () => readonly string[];
   /** The API client with the credential, which every tool call and `whoami` use. */
   client: ApiClient;
   /** The spec of the client's API URL. */
@@ -260,7 +261,7 @@ export class McpSession {
   }
 
   private text(value: unknown, isError: boolean): CallToolResult {
-    const safe = redactSecrets(value, [this.options.credential]);
+    const safe = redactSecrets(value, this.options.secrets());
     return {
       content: [{ type: "text", text: JSON.stringify(safe ?? null) }],
       ...(isError ? { isError: true } : {}),

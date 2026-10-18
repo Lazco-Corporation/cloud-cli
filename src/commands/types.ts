@@ -5,6 +5,7 @@ import type { ApiClient } from "../core/request/client";
 import type { Clock } from "../core/request/clock";
 import type { InputValidator } from "../core/request/validate";
 import type { JsonSchema } from "../core/spec/types";
+import type { Credential } from "../credentials/credential";
 import type { Keychain } from "../credentials/keychain";
 import type { Session } from "../credentials/session";
 import type { GlobalFlags } from "../shell/globalFlags";
@@ -25,19 +26,25 @@ export type HandwrittenContext = {
   validator: InputValidator;
   /** The API and credential source of this run, in the order of `cli-auth`. */
   session(): Promise<Session>;
-  /** The credential of the session, which then never reaches any output. */
-  credential(): Promise<string>;
+  /** The credential of the session, whose every secret then never reaches any output. */
+  credential(): Promise<Credential>;
   /**
    * A client for one API URL and credential, under the process's one rate
    * cap, with the CLI's `User-Agent` unless another is given.
    */
   client(
     apiUrl: string,
-    credential: string | undefined,
+    credential: Credential | undefined,
     userAgent?: string | (() => string),
   ): ApiClient;
   /** Keeps a value, such as a token being checked, out of every output. */
   addSecret(value: string): void;
+  /** A text with every secret of this run replaced, for a notice that quotes a request's error. */
+  redact(text: string): string;
+  /** Opens the URL of a browser sign-in. Resolves `false` when no browser could be started. */
+  openBrowser(url: string): Promise<boolean>;
+  /** How long a browser sign-in waits for its redirect. */
+  loopbackTimeoutMs: number;
 };
 
 /**

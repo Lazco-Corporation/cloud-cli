@@ -8,7 +8,7 @@ The hand-written part is the shell around it: sign-in, profiles, output, and the
 
 1. `src/shell/globalFlags.ts` takes the global flags out of the arguments, wherever they stand.
 2. `src/commands/registry.ts` is asked first. A hand-written command (`auth`, `profile`, `mcp`) runs without the spec.
-3. `src/credentials/session.ts` picks the API URL and the credential source, in the order of `docs/credentials.md`.
+3. `src/credentials/session.ts` picks the API URL and the credential source, in the order of `docs/credentials.md`. An SSO sign-in becomes an `SsoCredential` (`src/credentials/ssoCredential.ts`), which refreshes its access token as the run goes.
 4. `src/core/spec/loader.ts` gets the spec of that API URL, from the cache or from `GET /v1/spec`, see `docs/spec-contract.md`.
 5. `src/core/generate/operations.ts` turns each operation into a command, an input schema and at most one tool. `src/core/generate/tree.ts` resolves the command words.
    An unknown word refreshes the spec once, so a new operation works at once.
@@ -28,8 +28,10 @@ The MCP server runs steps 4, 5, 7 and 9 of the same code, so a command and its t
 - A GET, or a request with `Idempotency-Key`, is tried three times in all after a network error, 502, 503, 504 or 429, about 0.5 then 1 second apart with jitter.
 - `Retry-After` up to 60 seconds is waited for. A longer one returns the 429.
 - One request starts every 100 milliseconds per process, so no second holds more than 10.
+- A request with an SSO credential refreshes an access token that expires within 60 seconds first. A 401 to it refreshes once and sends the request once more.
 - An API error passes through with its status and every field. A body with both `error` and `message` keeps `message`, the specific one.
-- Every value equal to the active credential is replaced with `[REDACTED]` before any error or answer is written.
+- Every value equal to a credential of the run, an SSO token of any refresh among them, is replaced with `[REDACTED]` before any error or answer is written.
+- An OAuth endpoint of the provider takes a form body (`application/x-www-form-urlencoded`), sent with no bearer, see `src/sso/oauth.ts`.
 
 ## Output
 

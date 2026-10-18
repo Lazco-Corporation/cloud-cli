@@ -17,7 +17,7 @@ const serve: HandwrittenCommand = {
   command: ["mcp"],
   summary: "Serve the API's operations as MCP tools on stdio",
   description:
-    "A local MCP server for an MCP client to start. It uses the credential of this run, as every command does. Without --allow-writes it offers read tools only. With it, write tools and the destructive tools that need a confirmation are added, unless the token's scope is read. Nothing but MCP is written to stdout.",
+    "A local MCP server for an MCP client to start. It uses the credential of this run, as every command does, and refreshes an SSO sign-in as it goes. Without --allow-writes it offers read tools only. With it, write tools and the destructive tools that need a confirmation are added, unless the token's scope is read. Nothing but MCP is written to stdout.",
   kind: "read",
   positionals: [],
   inputSchema: {
@@ -40,7 +40,7 @@ const serve: HandwrittenCommand = {
     const mcp = await McpSession.start({
       version: context.version,
       allowWrites: input.allowWrites === true,
-      credential,
+      secrets: () => credential.secrets(),
       client: context.client(session.apiUrl, credential, userAgent),
       specSource: new SpecSource({
         client: context.client(session.apiUrl, undefined, userAgent),
