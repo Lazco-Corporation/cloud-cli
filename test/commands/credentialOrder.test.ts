@@ -4,7 +4,7 @@ import { writeConfig } from "../../src/config/configFile";
 import { cliEnv, FAKE_TOKEN, makeHome, runInProcess } from "../helpers/cli";
 import type { FakeApi } from "../helpers/fakeApi";
 import { fixtureApi, operationRequests } from "../helpers/fixtureApi";
-import { memoryKeychain } from "../helpers/keychain";
+import { accountOf, memoryKeychain } from "../helpers/keychain";
 
 const tokenOf = (suffix: string) => `lz_live_${"0".repeat(48)}${suffix.repeat(16 / suffix.length)}`;
 const DEFAULT_TOKEN = tokenOf("d0");
@@ -21,20 +21,32 @@ beforeEach(async () => {
   otherApi = fixtureApi();
   home = await makeHome();
   keychain = memoryKeychain();
-  keychain.entries.set("default", DEFAULT_TOKEN);
-  keychain.entries.set("staging", STAGING_TOKEN);
+  keychain.entries.set(accountOf("default"), DEFAULT_TOKEN);
+  keychain.entries.set(accountOf("staging"), STAGING_TOKEN);
   const organization = { id: "org-1", name: "Fixture Org" };
   await writeConfig(join(home.home, "config", "lazco", "config.json"), {
     version: 1,
     currentProfile: "default",
     profiles: {
-      default: { apiUrl: api.apiUrl, organization, credential: { store: "keychain" } },
-      staging: { apiUrl: api.apiUrl, organization, credential: { store: "keychain" } },
+      default: {
+        apiUrl: api.apiUrl,
+        organization,
+        credential: { store: "keychain", account: accountOf("default") },
+      },
+      staging: {
+        apiUrl: api.apiUrl,
+        organization,
+        credential: { store: "keychain", account: accountOf("staging") },
+      },
       plain: { apiUrl: api.apiUrl, organization, credential: { store: "file", token: FILE_TOKEN } },
-      remote: { apiUrl: otherApi.apiUrl, organization, credential: { store: "keychain" } },
+      remote: {
+        apiUrl: otherApi.apiUrl,
+        organization,
+        credential: { store: "keychain", account: accountOf("remote") },
+      },
     },
   });
-  keychain.entries.set("remote", tokenOf("ee"));
+  keychain.entries.set(accountOf("remote"), tokenOf("ee"));
 });
 
 afterEach(async () => {
@@ -169,7 +181,7 @@ describe("no credential", () => {
   });
 
   test("a keychain that lost the entry is CLI_NOT_LOGGED_IN naming the profile", async () => {
-    keychain.entries.delete("default");
+    keychain.entries.delete(accountOf("default"));
     const result = await run(["regions", "list"]);
     const error = errorOf(result.stderr);
     expect(error.code).toBe("CLI_NOT_LOGGED_IN");

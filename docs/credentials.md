@@ -29,13 +29,13 @@ It has mode 0600, is written to a temporary file and renamed, and is checked wit
     "<profile name>": {
       "apiUrl": "https://api.lazco.tw/v1",
       "organization": { "id": "<uuid>", "name": "<name>" },
-      "credential": { "store": "keychain" }
+      "credential": { "store": "keychain", "account": "<profile name>@<16 hexadecimal characters>" }
     }
   }
 }
 ```
 
-- A profile name is 1 to 64 letters, digits, `.`, `_` or `-`, and starts with a letter or a digit, because it is also the keychain account.
+- A profile name is 1 to 64 letters, digits, `.`, `_` or `-`, and starts with a letter or a digit, because it also starts the keychain account.
 - A profile without `--profile` is `default`.
 - `currentProfile` must name a profile. Logging out of the current profile leaves no current profile.
 - A field this version does not know is kept, so an older CLI does not drop what a newer one wrote.
@@ -43,7 +43,10 @@ It has mode 0600, is written to a temporary file and renamed, and is checked wit
 
 ## The keychain
 
-`src/credentials/keychain.ts` stores the token with `@napi-rs/keyring`, under service `tw.lazco.cli` and account `<profile name>`.
+`src/credentials/keychain.ts` stores the token with `@napi-rs/keyring`, under service `tw.lazco.cli` and the account that the profile's `credential.account` names.
+
+- Each login makes a new account: the profile name, `@`, and 16 random hexadecimal characters, such as `default@3fa9c2d17b04e815`. So two config files with one profile name, through another `XDG_CONFIG_HOME` or `APPDATA`, never share an entry, and a token never reaches the API URL of the other file.
+- Login writes the new entry, then the config file, and only then deletes the entry of the profile's previous login. When the config file cannot be written, it deletes the new entry, and the old login keeps working.
 
 - macOS uses the login keychain, Windows the Credential Manager, Linux the Secret Service.
 - Every entry pins the Linux store `secret-service`, so a token never lands in the kernel keyring, which a reboot clears.

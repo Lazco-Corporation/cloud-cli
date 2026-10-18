@@ -6,7 +6,7 @@ import { type Config, writeConfig } from "../../src/config/configFile";
 import { cliEnv, FAKE_TOKEN, makeHome, ndjson, runInProcess } from "../helpers/cli";
 import { FakeApi, json } from "../helpers/fakeApi";
 import { fixtureApi } from "../helpers/fixtureApi";
-import { memoryKeychain } from "../helpers/keychain";
+import { accountOf, memoryKeychain } from "../helpers/keychain";
 
 const STAGING_URL = "https://api-staging.lazco.tw/v1";
 const FILE_TOKEN = `lz_live_${"0".repeat(48)}${"f1".repeat(8)}`;
@@ -23,9 +23,17 @@ async function seed(config: Partial<Config> = {}): Promise<void> {
     version: 1,
     currentProfile: "default",
     profiles: {
-      default: { apiUrl: api.apiUrl, organization, credential: { store: "keychain" } },
+      default: {
+        apiUrl: api.apiUrl,
+        organization,
+        credential: { store: "keychain", account: accountOf("default") },
+      },
       plain: { apiUrl: api.apiUrl, organization, credential: { store: "file", token: FILE_TOKEN } },
-      staging: { apiUrl: STAGING_URL, organization, credential: { store: "keychain" } },
+      staging: {
+        apiUrl: STAGING_URL,
+        organization,
+        credential: { store: "keychain", account: accountOf("staging") },
+      },
     },
     ...config,
   });
@@ -36,8 +44,8 @@ beforeEach(async () => {
   home = await makeHome();
   configPath = join(home.home, "config", "lazco", "config.json");
   keychain = memoryKeychain();
-  keychain.entries.set("default", FAKE_TOKEN);
-  keychain.entries.set("staging", `lz_live_${"0".repeat(48)}${"5a".repeat(8)}`);
+  keychain.entries.set(accountOf("default"), FAKE_TOKEN);
+  keychain.entries.set(accountOf("staging"), `lz_live_${"0".repeat(48)}${"5a".repeat(8)}`);
   await seed();
 });
 
@@ -119,8 +127,8 @@ describe("lazco auth logout", () => {
     expect(result.code).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({ profile: "staging", loggedOut: true });
     expect(result.stderr).toContain("https://cloud-staging.lazco.tw/dashboard/api");
-    expect(keychain.entries.has("staging")).toBe(false);
-    expect(keychain.entries.has("default")).toBe(true);
+    expect(keychain.entries.has(accountOf("staging"))).toBe(false);
+    expect(keychain.entries.has(accountOf("default"))).toBe(true);
     const listed = await run(["profile", "list"]);
     expect((ndjson(listed.stdout) as Array<{ name: string }>).map((line) => line.name)).toEqual([
       "default",
@@ -131,7 +139,7 @@ describe("lazco auth logout", () => {
   test("logging out of the current profile leaves no current profile", async () => {
     const result = await run(["auth", "logout"]);
     expect(result.code).toBe(0);
-    expect(keychain.entries.has("default")).toBe(false);
+    expect(keychain.entries.has(accountOf("default"))).toBe(false);
     const config = await storedConfig();
     expect(config.currentProfile).toBeUndefined();
     expect(Object.keys(config.profiles)).toEqual(["plain", "staging"]);
@@ -146,7 +154,7 @@ describe("lazco auth logout", () => {
     const result = await run(["auth", "logout"], { LAZCO_TOKEN: FAKE_TOKEN });
     expect(result.code).toBe(1);
     expect(errorOf(result.stderr).code).toBe("CLI_INVALID_INPUT");
-    expect(keychain.entries.has("default")).toBe(true);
+    expect(keychain.entries.has(accountOf("default"))).toBe(true);
   });
 
   test("with LAZCO_TOKEN and --profile it forgets that profile", async () => {
@@ -154,7 +162,7 @@ describe("lazco auth logout", () => {
       LAZCO_TOKEN: FAKE_TOKEN,
     });
     expect(result.code).toBe(0);
-    expect(keychain.entries.has("default")).toBe(false);
+    expect(keychain.entries.has(accountOf("default"))).toBe(false);
   });
 
   test("an unknown profile is CLI_INVALID_INPUT", async () => {

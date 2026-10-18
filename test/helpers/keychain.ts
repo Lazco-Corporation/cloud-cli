@@ -20,3 +20,15 @@ export function brokenKeychain(message = "no Secret Service is running"): Keycha
   };
   return { set: fail, get: fail, delete: fail };
 }
+
+/** The keychain account of a profile in a seeded config file, with a fixed suffix. */
+export function accountOf(profile: string): string {
+  return `${profile}@${"0".repeat(16)}`;
+}
+
+/** Every token the keychain holds for a profile, whatever the suffix of its account. */
+export function tokensOf(keychain: { entries: Map<string, string> }, profile: string): string[] {
+  return [...keychain.entries]
+    .filter(([account]) => account.startsWith(`${profile}@`))
+    .map(([, token]) => token);
+}

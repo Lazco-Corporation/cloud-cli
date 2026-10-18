@@ -3,15 +3,25 @@ import { z } from "zod";
 import { CliError } from "../core/errors";
 import { writeFileAtomic } from "./atomicFile";
 
-/** A profile name is also the keychain account, so it stays short and plain. */
+/** A profile name starts the keychain account, so it stays short and plain. */
 export const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/**
+ * A keychain account: the profile name, `@`, and 16 random hexadecimal
+ * characters of one login, so two config files with one profile name never
+ * share an entry.
+ */
+export const KEYCHAIN_ACCOUNT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}@[0-9a-f]{16}$/;
 
 export const DEFAULT_PROFILE = "default";
 
 const profileNameSchema = z.string().regex(PROFILE_NAME, "is not a valid profile name");
 
 const credentialSchema = z.discriminatedUnion("store", [
-  z.object({ store: z.literal("keychain") }),
+  z.object({
+    store: z.literal("keychain"),
+    account: z.string().regex(KEYCHAIN_ACCOUNT, "is not a valid keychain account"),
+  }),
   z.object({ store: z.literal("file"), token: z.string().min(1) }),
 ]);
 

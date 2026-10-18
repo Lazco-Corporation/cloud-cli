@@ -1,7 +1,10 @@
 import type { AsyncEntry, EntryOptions } from "@napi-rs/keyring";
 import { importKeyringBinding } from "./nativeKeyring";
 
-/** The keychain service of every entry. The account is the profile name. */
+/**
+ * The keychain service of every entry. The account is the profile name and a
+ * random suffix of one login, which the config file names.
+ */
 export const KEYCHAIN_SERVICE = "tw.lazco.cli";
 
 /**

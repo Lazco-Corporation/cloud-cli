@@ -5,7 +5,7 @@ import { writeConfig } from "../../src/config/configFile";
 import { type CliRun, cliEnv, FAKE_TOKEN, makeHome, runInProcess } from "../helpers/cli";
 import { FakeApi, json } from "../helpers/fakeApi";
 import { fixtureApi } from "../helpers/fixtureApi";
-import { brokenKeychain, memoryKeychain } from "../helpers/keychain";
+import { accountOf, brokenKeychain, memoryKeychain } from "../helpers/keychain";
 
 const KEYCHAIN_TOKEN = `lz_live_${"0".repeat(48)}beefbeef12345678`;
 const FILE_TOKEN = `lz_live_${"0".repeat(48)}f11ef11e87654321`;
@@ -145,8 +145,16 @@ beforeAll(async () => {
     version: 1,
     currentProfile: "kc-normal",
     profiles: {
-      "kc-normal": { apiUrl: normalApi.apiUrl, organization, credential: { store: "keychain" } },
-      "kc-echo": { apiUrl: echoApi.apiUrl, organization, credential: { store: "keychain" } },
+      "kc-normal": {
+        apiUrl: normalApi.apiUrl,
+        organization,
+        credential: { store: "keychain", account: accountOf("kc-normal") },
+      },
+      "kc-echo": {
+        apiUrl: echoApi.apiUrl,
+        organization,
+        credential: { store: "keychain", account: accountOf("kc-echo") },
+      },
       "file-echo": {
         apiUrl: echoApi.apiUrl,
         organization,
@@ -154,8 +162,8 @@ beforeAll(async () => {
       },
     },
   });
-  keychain.entries.set("kc-normal", KEYCHAIN_TOKEN);
-  keychain.entries.set("kc-echo", KEYCHAIN_TOKEN);
+  keychain.entries.set(accountOf("kc-normal"), KEYCHAIN_TOKEN);
+  keychain.entries.set(accountOf("kc-echo"), KEYCHAIN_TOKEN);
 });
 
 afterAll(async () => {

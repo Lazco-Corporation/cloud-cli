@@ -58,7 +58,7 @@ describe("the config file", () => {
         default: {
           apiUrl: "https://api.lazco.tw/v1",
           organization: { id: "org-1", name: "Org" },
-          credential: { store: "keychain" as const },
+          credential: { store: "keychain" as const, account: "default@0123456789abcdef" },
         },
       },
     };
