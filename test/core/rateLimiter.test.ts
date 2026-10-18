@@ -18,7 +18,6 @@ describe("rate limiter", () => {
     const clock = fakeClock();
     // A sleep longer than 1 ms ends 1 ms before it should, as a real timer sometimes does.
     const early = {
-      ...clock,
       now: () => clock.time,
       sleep: async (milliseconds: number) => {
         clock.sleeps.push(milliseconds);
