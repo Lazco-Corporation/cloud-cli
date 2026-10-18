@@ -54,6 +54,33 @@ keyring_package() {
   esac
 }
 
+# `bun build --compile` leaves the darwin-x64 binary with Bun's own signature,
+# which no longer matches the file, and macOS then refuses it the keychain. So
+# every macOS binary gets an ad-hoc signature: rcodesign on Linux
+# (scripts/install-rcodesign.sh), codesign on macOS.
+sign_tool() {
+  if command -v rcodesign >/dev/null 2>&1; then
+    echo rcodesign
+  elif command -v codesign >/dev/null 2>&1; then
+    echo codesign
+  else
+    return 1
+  fi
+}
+
+sign_adhoc() {
+  case "$(sign_tool)" in
+    rcodesign)
+      rcodesign sign "$1" >/dev/null
+      rcodesign verify "$1" >/dev/null
+      ;;
+    codesign)
+      codesign --force --sign - "$1" 2>/dev/null
+      codesign --verify "$1"
+      ;;
+  esac
+}
+
 # Check every target before building any, so one missing package fails the whole build.
 for target in $TARGETS; do
   spec="$(keyring_package "$target")" || fail "no keychain package is known for $target"
@@ -61,6 +88,10 @@ for target in $TARGETS; do
   [[ -f "node_modules/@napi-rs/$package/$native_file" ]] ||
     fail "node_modules/@napi-rs/$package/$native_file is missing, so $target would have no keychain. Run: bun install --frozen-lockfile --os='*' --cpu='*'"
 done
+if [[ "$TARGETS" == *bun-darwin-* ]]; then
+  sign_tool >/dev/null ||
+    fail "the macOS binaries need an ad-hoc signature: run on macOS, or install rcodesign with scripts/install-rcodesign.sh"
+fi
 [[ "$(grep -cF "$PLACEHOLDER" "$KEYRING_FILE")" == "1" ]] ||
   fail "$KEYRING_FILE must hold exactly one $PLACEHOLDER"
 
@@ -98,6 +129,9 @@ archive_one() {
     fail "the keychain import of $target was not rewritten"
 
   bun build --compile --minify "--target=$target" "$source_copy/src/cli.ts" --outfile "$out_bin"
+  case "$target" in
+    bun-darwin-*) sign_adhoc "$out_bin" || fail "the ad-hoc signature of $target failed" ;;
+  esac
 
   cp LICENSE "$stage/LICENSE"
   if [[ -f README.md ]]; then

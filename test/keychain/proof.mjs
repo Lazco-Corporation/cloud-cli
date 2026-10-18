@@ -71,46 +71,27 @@ async function osToolFinds() {
     return result.code === 0 && result.stdout.trim() === TOKEN;
   }
   if (process.platform === "win32") {
+    // The Credential Manager's own reader, CredRead, for the generic
+    // credential that the keychain library names `<account>.<service>`.
     const script = `
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-public static class LazcoCredentials {
-  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-  public struct CREDENTIAL {
-    public int Flags; public int Type; public string TargetName; public string Comment;
-    public long LastWritten; public int CredentialBlobSize; public IntPtr CredentialBlob;
-    public int Persist; public int AttributeCount; public IntPtr Attributes;
-    public string TargetAlias; public string UserName;
-  }
+public static class LazcoCredential {
   [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-  public static extern bool CredEnumerate(string filter, int flags, out int count, out IntPtr credentials);
+  public static extern bool CredRead(string target, int type, int flags, out IntPtr credential);
   [DllImport("advapi32.dll")]
   public static extern void CredFree(IntPtr buffer);
-  public static string[] Targets(string filter) {
-    int count; IntPtr list;
-    // A filter takes a trailing "*" only, so the caller enumerates all and filters itself.
-    if (!CredEnumerate(filter, filter == null ? 1 : 0, out count, out list)) {
-      int error = Marshal.GetLastWin32Error();
-      // ERROR_NOT_FOUND: no credential at all.
-      if (error == 1168) { return new string[0]; }
-      throw new System.ComponentModel.Win32Exception(error);
-    }
-    var targets = new string[count];
-    for (int index = 0; index < count; index++) {
-      var item = Marshal.ReadIntPtr(list, index * IntPtr.Size);
-      var credential = (CREDENTIAL)Marshal.PtrToStructure(item, typeof(CREDENTIAL));
-      targets[index] = credential.TargetName + "|" + credential.UserName;
-    }
-    CredFree(list);
-    return targets;
+  public static bool Exists(string target) {
+    IntPtr credential;
+    if (!CredRead(target, 1, 0, out credential)) { return false; }
+    CredFree(credential);
+    return true;
   }
 }
 '@
-$all = [LazcoCredentials]::Targets($null)
-[Console]::Error.WriteLine("credential manager holds " + $all.Count + " credentials")
-$all | Where-Object { $_ -like '*${SERVICE}*' } | ForEach-Object { $_ }
+if ([LazcoCredential]::Exists('${profile}.${SERVICE}')) { 'found' } else { 'absent' }
 `;
     const result = await run("powershell.exe", [
       "-NoProfile",
@@ -121,13 +102,7 @@ $all | Where-Object { $_ -like '*${SERVICE}*' } | ForEach-Object { $_ }
     if (result.code !== 0) {
       fail(`the PowerShell credential reader failed: ${result.stderr.trim()}`);
     }
-    console.log(
-      `${result.stderr.trim()}, entries of ${SERVICE}: ${result.stdout.trim() || "none"}`,
-    );
-    const listed = await run("cmdkey", ["/list"]);
-    const cmdkeyLines = listed.stdout.split(/\r?\n/).filter((line) => line.includes(SERVICE));
-    console.log(`cmdkey /list entries of ${SERVICE}: ${cmdkeyLines.join(" | ") || "none"}`);
-    return result.stdout.split(/\r?\n/).some((line) => line.includes(profile));
+    return result.stdout.trim() === "found";
   }
   return fail(`no OS tool is known for ${process.platform}`);
 }
