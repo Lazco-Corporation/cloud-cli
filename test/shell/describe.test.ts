@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { HANDWRITTEN_COMMANDS } from "../../src/commands/registry";
 import type { HandwrittenCommand } from "../../src/commands/types";
 import { cliEnv, makeHome, ndjson, runInProcess, runLazco } from "../helpers/cli";
 import type { FakeApi } from "../helpers/fakeApi";
@@ -95,7 +96,16 @@ describe("--describe", () => {
     const run = await runLazco(["--api-url", api.apiUrl, "--describe"], cliEnv(home.home));
     expect(run.code).toBe(0);
     const lines = ndjson(run.stdout) as Array<{ command: string; summary: string; kind: string }>;
-    expect(lines).toHaveLength(15);
+    expect(lines).toHaveLength(15 + HANDWRITTEN_COMMANDS.length);
+    expect(lines.map((line) => line.command)).toEqual(
+      expect.arrayContaining([
+        "auth login",
+        "auth logout",
+        "auth status",
+        "profile list",
+        "profile use",
+      ]),
+    );
     for (const line of lines) {
       expect(Object.keys(line)).toEqual(["command", "summary", "kind"]);
     }
@@ -105,6 +115,20 @@ describe("--describe", () => {
       kind: "destructive",
     });
     expect(api.requests.map((request) => request.path)).toEqual(["/v1/spec"]);
+  });
+
+  test("auth login describes its --with-token flag, with no spec and no network", async () => {
+    const run = await runLazco(
+      ["--api-url", "http://127.0.0.1:9/v1", "auth", "login", "--describe"],
+      cliEnv(home.home),
+    );
+    expect(run.code).toBe(0);
+    expect(JSON.parse(run.stdout)).toMatchObject({
+      command: "auth login",
+      kind: "write",
+      operationId: null,
+      flags: { "--with-token": "withToken" },
+    });
   });
 
   test("a group describes the commands below it", async () => {
