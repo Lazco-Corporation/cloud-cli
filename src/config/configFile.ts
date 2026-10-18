@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { CliError } from "../core/errors";
+import { withConfigLock } from "../credentials/lock";
 import { ssoRecordSchema } from "../credentials/ssoRecord";
 import { writeFileAtomic } from "./atomicFile";
 
@@ -138,6 +139,23 @@ export async function readConfig(path: string): Promise<Config> {
 /** Writes the whole file atomically with mode 0600, because a file-store profile holds its token. */
 export async function writeConfig(path: string, config: Config): Promise<void> {
   await writeFileAtomic(path, `${JSON.stringify(configSchema.parse(config), null, 2)}\n`, 0o600);
+}
+
+/**
+ * Reads the config, lets `change` change it in place, and writes it, all
+ * under the lock of the file, so two processes that write at once never lose
+ * one write. A `change` that throws writes nothing.
+ */
+export function updateConfig<T>(
+  path: string,
+  change: (config: Config) => T | Promise<T>,
+): Promise<T> {
+  return withConfigLock({ configPath: path }, async () => {
+    const config = await readConfig(path);
+    const result = await change(config);
+    await writeConfig(path, config);
+    return result;
+  });
 }
 
 /** Throws `CLI_INVALID_INPUT` for a name that cannot be a profile. */

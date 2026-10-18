@@ -4,7 +4,7 @@ import lockfile from "proper-lockfile";
 import { CliError } from "../core/errors";
 import { type Clock, MONOTONIC_CLOCK } from "../core/request/clock";
 
-/** How long a process waits for another one's refresh before it gives up. */
+/** How long a process waits for another one's lock before it gives up. */
 export const LOCK_WAIT_MS = 30_000;
 const LOCK_POLL_MS = 100;
 
@@ -14,18 +14,29 @@ export function profileLockPath(configPath: string, profileName: string): string
 }
 
 /**
- * Runs `task` while this process holds the exclusive lock of one profile,
- * so two processes never refresh or replace one sign-in at once. Waits at
- * most 30 seconds for the lock, then fails with `CLI_TIMEOUT`.
+ * The lock of the config file itself. A profile name starts with a letter or
+ * a digit, so no profile lock can share this name.
  */
-export async function withProfileLock<T>(
-  options: { configPath: string; profileName: string; clock?: Clock; waitMs?: number },
+export function configLockPath(configPath: string): string {
+  return join(dirname(configPath), "locks", "_config.lock");
+}
+
+type LockOptions = { clock?: Clock; waitMs?: number };
+
+/**
+ * Runs `task` while this process holds an exclusive lock. Waits at most 30
+ * seconds for it, then fails with `CLI_TIMEOUT` naming `holderOf`.
+ */
+async function withLock<T>(
+  lockPath: string,
+  holderOf: string,
+  options: LockOptions,
   task: () => Promise<T>,
 ): Promise<T> {
   const clock = options.clock ?? MONOTONIC_CLOCK;
-  const lockPath = profileLockPath(options.configPath, options.profileName);
+  const waitMs = options.waitMs ?? LOCK_WAIT_MS;
   await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 });
-  const deadline = clock.now() + (options.waitMs ?? LOCK_WAIT_MS);
+  const deadline = clock.now() + waitMs;
   let release: () => Promise<void>;
   for (;;) {
     try {
@@ -43,13 +54,13 @@ export async function withProfileLock<T>(
       if ((error as NodeJS.ErrnoException).code !== "ELOCKED") {
         throw new CliError(
           "CLI_INTERNAL",
-          `The lock of profile ${options.profileName} could not be taken: ${(error as Error).message}`,
+          `The lock of ${holderOf} could not be taken: ${(error as Error).message}`,
         );
       }
       if (clock.now() >= deadline) {
         throw new CliError(
           "CLI_TIMEOUT",
-          `Another lazco process held the lock of profile ${options.profileName} for ${(options.waitMs ?? LOCK_WAIT_MS) / 1000} seconds`,
+          `Another lazco process held the lock of ${holderOf} for ${waitMs / 1000} seconds`,
           { lock: lockPath },
         );
       }
@@ -61,4 +72,32 @@ export async function withProfileLock<T>(
   } finally {
     await release().catch(() => undefined);
   }
+}
+
+/**
+ * Runs `task` while this process holds the lock of one profile, so two
+ * processes never refresh or replace one sign-in at once.
+ */
+export function withProfileLock<T>(
+  options: { configPath: string; profileName: string } & LockOptions,
+  task: () => Promise<T>,
+): Promise<T> {
+  return withLock(
+    profileLockPath(options.configPath, options.profileName),
+    `profile ${options.profileName}`,
+    options,
+    task,
+  );
+}
+
+/**
+ * Runs `task` while this process holds the lock of the config file, so a
+ * read, change and write of the file never loses another process's write.
+ * Taken inside a profile lock, never around one.
+ */
+export function withConfigLock<T>(
+  options: { configPath: string } & LockOptions,
+  task: () => Promise<T>,
+): Promise<T> {
+  return withLock(configLockPath(options.configPath), options.configPath, options, task);
 }

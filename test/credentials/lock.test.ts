@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { writeConfig } from "../../src/config/configFile";
 import type { CliError } from "../../src/core/errors";
 import { profileLockPath, withProfileLock } from "../../src/credentials/lock";
 import type { SsoRecord } from "../../src/credentials/ssoRecord";
@@ -63,6 +64,39 @@ describe("the profile lock", () => {
     release();
     await first;
   });
+});
+
+describe("two processes of two file-store profiles", () => {
+  test("both refreshed pairs stay in the one config file", async () => {
+    const provider = new FakeProvider();
+    try {
+      provider.refreshDelayMs = 300;
+      const first = provider.record({ lifetimeSeconds: 30 });
+      const second = provider.record({ lifetimeSeconds: 30 });
+      const profileOf = (sso: SsoRecord) => ({
+        apiUrl: provider.apiUrl,
+        organization: { id: sso.organizationId, name: "Org A" },
+        method: "sso" as const,
+        credential: { store: "file" as const, sso },
+      });
+      await writeConfig(configPath, {
+        version: 1,
+        profiles: { a: profileOf(first), b: profileOf(second) },
+      });
+      const env = cliEnv(home.home);
+      const runs = await Promise.all([
+        runLazco(["--profile", "a", "auth", "status"], env),
+        runLazco(["--profile", "b", "auth", "status"], env),
+      ]);
+      expect(runs.map((run) => run.code)).toEqual([0, 0]);
+      expect(provider.requestsTo("/oidc/token", "refresh_token")).toHaveLength(2);
+      const profiles = JSON.parse(await readFile(configPath, "utf8")).profiles;
+      expect(profiles.a.credential.sso.refreshToken).not.toBe(first.refreshToken);
+      expect(profiles.b.credential.sso.refreshToken).not.toBe(second.refreshToken);
+    } finally {
+      provider.stop();
+    }
+  }, 30_000);
 });
 
 describe("two processes of one profile", () => {

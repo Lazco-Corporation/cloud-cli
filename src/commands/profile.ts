@@ -1,4 +1,4 @@
-import { readConfig, writeConfig } from "../config/configFile";
+import { readConfig, updateConfig } from "../config/configFile";
 import { CliError } from "../core/errors";
 import type { HandwrittenCommand } from "./types";
 
@@ -40,16 +40,16 @@ const use: HandwrittenCommand = {
   },
   async run(input, context) {
     const name = input.name as string;
-    const config = await readConfig(context.configPath);
-    if (!Object.hasOwn(config.profiles, name)) {
-      throw new CliError(
-        "CLI_INVALID_INPUT",
-        `No profile is named ${name}: run lazco profile list`,
-        [{ field: "name", message: "names no profile" }],
-      );
-    }
-    config.currentProfile = name;
-    await writeConfig(context.configPath, config);
+    await updateConfig(context.configPath, (config) => {
+      if (!Object.hasOwn(config.profiles, name)) {
+        throw new CliError(
+          "CLI_INVALID_INPUT",
+          `No profile is named ${name}: run lazco profile list`,
+          [{ field: "name", message: "names no profile" }],
+        );
+      }
+      config.currentProfile = name;
+    });
     return { record: { profile: name, current: true } };
   },
 };

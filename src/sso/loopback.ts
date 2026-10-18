@@ -48,10 +48,20 @@ function listen(server: Server, host: string): Promise<number> {
 }
 
 /**
- * Listens on `127.0.0.1`, or on `::1` when IPv4 loopback is not available.
- * Never on the name `localhost`, which a resolver may send elsewhere.
+ * The addresses a listener tries, in order: IPv4 loopback, then IPv6
+ * loopback. Never the name `localhost`, which a resolver may send elsewhere.
  */
-export async function startLoopback(): Promise<LoopbackListener> {
+export const LOOPBACK_HOSTS: readonly string[] = ["127.0.0.1", "::1"];
+
+/** The host of a URL for an address, with the brackets of an IPv6 literal. */
+function urlHost(address: string): string {
+  return address.includes(":") ? `[${address}]` : address;
+}
+
+/** Listens on the first address of `hosts` that the system lets it bind. */
+export async function startLoopback(
+  hosts: readonly string[] = LOOPBACK_HOSTS,
+): Promise<LoopbackListener> {
   let settle: ((query: URLSearchParams) => void) | undefined;
   let received: URLSearchParams | undefined;
   let answered = false;
@@ -75,18 +85,21 @@ export async function startLoopback(): Promise<LoopbackListener> {
       settle?.(received);
     });
   });
-  let redirectUri: string;
-  try {
-    redirectUri = `http://127.0.0.1:${await listen(server, "127.0.0.1")}${CALLBACK_PATH}`;
-  } catch {
+  let redirectUri: string | undefined;
+  let lastError: unknown;
+  for (const host of hosts) {
     try {
-      redirectUri = `http://[::1]:${await listen(server, "::1")}${CALLBACK_PATH}`;
+      redirectUri = `http://${urlHost(host)}:${await listen(server, host)}${CALLBACK_PATH}`;
+      break;
     } catch (error) {
-      throw new CliError(
-        "CLI_INTERNAL",
-        `No loopback address could be listened on for the browser sign-in: ${(error as Error).message}. Sign in with --device instead`,
-      );
+      lastError = error;
     }
+  }
+  if (redirectUri === undefined) {
+    throw new CliError(
+      "CLI_INTERNAL",
+      `No loopback address could be listened on for the browser sign-in: ${(lastError as Error | undefined)?.message ?? "none to try"}. Sign in with --device instead`,
+    );
   }
   const close = () => {
     server.close();

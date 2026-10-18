@@ -57,7 +57,10 @@ export class FakeProvider {
   browser: BrowserChoice = "allow";
   /** The organization the user picks on the consent screen, else the hint, else `org-a`. */
   pick: string | undefined;
-  /** The answers of the device grant, in turn, until `approve`. */
+  /**
+   * The answers of the device grant, in turn, until `approve`: an OAuth error,
+   * `rate-limited` for a 429, or `pending-forever`, which never moves on.
+   */
   deviceAnswers: string[] = ["approve"];
   /** The `expires_in` of every access token. */
   accessLifetimeSeconds = 3600;
@@ -317,6 +320,13 @@ export class FakeProvider {
           return oauthError("expired_token");
         }
         const next = this.deviceAnswers.shift() ?? "expired_token";
+        if (next === "rate-limited") {
+          return json(429, { error: "Too many requests", code: "RATE_LIMITED", timestamp: "t" });
+        }
+        if (next === "pending-forever") {
+          this.deviceAnswers.unshift(next);
+          return oauthError("authorization_pending");
+        }
         if (next !== "approve") {
           return oauthError(next);
         }

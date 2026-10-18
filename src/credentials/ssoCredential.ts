@@ -1,4 +1,4 @@
-import { type Profile, profileOf, readConfig, writeConfig } from "../config/configFile";
+import { type Profile, profileOf, readConfig, updateConfig } from "../config/configFile";
 import { CliError } from "../core/errors";
 import type { ApiClient } from "../core/request/client";
 import { type Clock, SYSTEM_CLOCK } from "../core/request/clock";
@@ -120,7 +120,7 @@ export class SsoCredential implements Credential {
     if (record.signInId !== this.record.signInId) {
       throw new CliError(
         "CLI_NOT_LOGGED_IN",
-        `Profile ${profileName} was signed in again by another lazco process: run the command again`,
+        `Profile ${profileName} was signed in again by another lazco process: run the command again, or restart lazco mcp`,
       );
     }
     return { profile, record };
@@ -171,23 +171,40 @@ export class SsoCredential implements Credential {
     return record;
   }
 
-  /** Stores the new pair before the lock is released, so the next process reads it. */
+  /**
+   * Stores the new pair before the lock is released, so the next process
+   * reads it. When it cannot be stored, the old refresh token works for 30
+   * seconds more and is then reuse, so the user must sign in again.
+   */
   private async store(profile: Profile, record: SsoRecord): Promise<void> {
     const { profileName, configPath, keychain } = this.options;
-    if (profile.credential.store === "keychain") {
-      await replaceKeychainRecord(keychain, profileName, profile.credential.account, record);
-      return;
-    }
-    const config = await readConfig(configPath);
-    const current = profileOf(config, profileName);
-    if (current?.credential.store !== "file") {
+    try {
+      if (profile.credential.store === "keychain") {
+        await replaceKeychainRecord(keychain, profileName, profile.credential.account, record);
+        return;
+      }
+      await updateConfig(configPath, (config) => {
+        const current = profileOf(config, profileName);
+        if (
+          current?.credential.store !== "file" ||
+          current.credential.sso?.signInId !== record.signInId
+        ) {
+          throw new CliError(
+            "CLI_INTERNAL",
+            `Profile ${profileName} changed while its sign-in was refreshed`,
+          );
+        }
+        current.credential = { store: "file", sso: record };
+      });
+    } catch (error) {
+      const failure =
+        error instanceof CliError ? error : new CliError("CLI_INTERNAL", String(error));
       throw new CliError(
-        "CLI_INTERNAL",
-        `Profile ${profileName} changed while its sign-in was refreshed`,
+        failure.code,
+        `${failure.message}. Sign in again with lazco auth login --sso --profile ${profileName}`,
+        failure.details,
       );
     }
-    current.credential = { store: "file", sso: record };
-    await writeConfig(configPath, config);
   }
 
   /** Deletes the stored credential and the profile of an ended sign-in. */
@@ -195,11 +212,11 @@ export class SsoCredential implements Credential {
     const { profileName, configPath, keychain } = this.options;
     // The provider ended the sign-in, so an entry left behind holds dead tokens only.
     await forgetCredential(keychain, profileName, profile.credential).catch(() => undefined);
-    const config = await readConfig(configPath);
-    delete config.profiles[profileName];
-    if (config.currentProfile === profileName) {
-      delete config.currentProfile;
-    }
-    await writeConfig(configPath, config);
+    await updateConfig(configPath, (config) => {
+      delete config.profiles[profileName];
+      if (config.currentProfile === profileName) {
+        delete config.currentProfile;
+      }
+    });
   }
 }

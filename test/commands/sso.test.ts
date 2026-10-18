@@ -267,6 +267,25 @@ describe("lazco auth login --sso, device", () => {
     expect(keychain.entries.size).toBe(0);
   });
 
+  test("a 429 on one poll skips that poll, and the sign-in goes on", async () => {
+    provider.deviceAnswers = ["authorization_pending", "rate-limited", "approve"];
+    const run = await lazco(login("--device"), { clock: fakeClock(Date.now()) });
+    expect(run.code).toBe(0);
+    expect(provider.requestsTo("/oidc/token")).toHaveLength(3);
+  });
+
+  test("a code never entered ends at its own expiry with CLI_TIMEOUT", async () => {
+    provider.deviceAnswers = ["pending-forever"];
+    const clock = fakeClock(Date.now());
+    const run = await lazco(login("--device"), { clock });
+    expect(errorOf(run)).toMatchObject({
+      code: "CLI_TIMEOUT",
+      details: { oauthError: "expired_token" },
+    });
+    // 600 seconds at 5 seconds a poll, and no poll after the expiry.
+    expect(provider.requestsTo("/oidc/token")).toHaveLength(120);
+  });
+
   test("an expired code is CLI_TIMEOUT", async () => {
     provider.deviceAnswers = ["authorization_pending", "expired_token"];
     const run = await lazco(login("--device"), { clock: fakeClock(Date.now()) });

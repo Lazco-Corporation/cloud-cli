@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
 import { z } from "zod";
-import { CliError } from "../core/errors";
+import { ApiError, CliError } from "../core/errors";
 import type { ApiClient } from "../core/request/client";
 import type { Clock } from "../core/request/clock";
 import type { Io } from "../shell/io";
@@ -206,6 +206,22 @@ const deviceAnswerSchema = z.looseObject({
   interval: z.number().int().positive().optional(),
 });
 
+/** A failure of one poll that the next poll may not meet: no answer, a 429 or a 5xx. */
+function isPassing(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.status === 429 || error.status >= 500;
+  }
+  if (error instanceof CliError) {
+    const status = (error.details as { status?: unknown } | undefined)?.status;
+    return (
+      error.code === "CLI_NETWORK" ||
+      error.code === "CLI_TIMEOUT" ||
+      (error.code === "CLI_BAD_RESPONSE" && typeof status === "number" && status >= 500)
+    );
+  }
+  return false;
+}
+
 async function deviceFlow(
   provider: Provider,
   options: SsoSignInOptions,
@@ -259,11 +275,20 @@ async function deviceFlow(
         { oauthError: "expired_token" },
       );
     }
-    const answer = await exchange(
-      provider,
-      { grant_type: DEVICE_CODE_GRANT, device_code: device.device_code },
-      context,
-    );
+    let answer: Awaited<ReturnType<typeof exchange>>;
+    try {
+      answer = await exchange(
+        provider,
+        { grant_type: DEVICE_CODE_GRANT, device_code: device.device_code },
+        context,
+      );
+    } catch (error) {
+      // The person may be halfway through the consent, so a passing failure only skips a poll.
+      if (isPassing(error)) {
+        continue;
+      }
+      throw error;
+    }
     if (!("error" in answer)) {
       return answer;
     }

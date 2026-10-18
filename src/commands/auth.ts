@@ -5,7 +5,7 @@ import {
   profileOf,
   readConfig,
   type SignInMethod,
-  writeConfig,
+  updateConfig,
 } from "../config/configFile";
 import { ApiError, CliError, toToolError } from "../core/errors";
 import { requireJson } from "../core/request/client";
@@ -318,24 +318,24 @@ const login: HandwrittenCommand = {
     const organization = whoami.organization;
 
     const { credential, keychainError } = await storeCredential(context.keychain, name, secret);
-    const { config, previous, previousRefreshToken } = await withProfileLock(
+    const { current, previous, previousRefreshToken } = await withProfileLock(
       { configPath: context.configPath, profileName: name },
       async () => {
         // Read again inside the lock, because another process may have refreshed or replaced it.
-        const config = await readConfig(context.configPath);
-        const previous = profileOf(config, name);
-        const previousRefreshToken = previous
-          ? await storedRefreshToken(context, name, previous).catch(() => undefined)
-          : undefined;
-        config.profiles[name] = { apiUrl, organization, method, credential };
-        config.currentProfile ??= name;
-        try {
-          await writeConfig(context.configPath, config);
-        } catch (error) {
+        const written = await updateConfig(context.configPath, async (config) => {
+          const previous = profileOf(config, name);
+          const previousRefreshToken = previous
+            ? await storedRefreshToken(context, name, previous).catch(() => undefined)
+            : undefined;
+          config.profiles[name] = { apiUrl, organization, method, credential };
+          config.currentProfile ??= name;
+          return { current: config.currentProfile === name, previous, previousRefreshToken };
+        }).catch(async (error: unknown) => {
           // The old config still names the old entry, so the new one serves nobody.
           await forgetCredential(context.keychain, name, credential).catch(() => undefined);
           throw error;
-        }
+        });
+        const previous = written.previous;
         // Only now that the config names the new entry is the old one unused.
         if (previous) {
           await forgetCredential(context.keychain, name, previous.credential).catch(() => {
@@ -347,7 +347,7 @@ const login: HandwrittenCommand = {
             }
           });
         }
-        return { config, previous, previousRefreshToken };
+        return written;
       },
     );
 
@@ -383,7 +383,7 @@ const login: HandwrittenCommand = {
         scope: whoami.scope,
         store: credential.store,
         ...(credential.store === "file" ? { path: context.configPath } : {}),
-        current: config.currentProfile === name,
+        current,
       },
     };
   },
@@ -451,8 +451,8 @@ const logout: HandwrittenCommand = {
     const { profile, revokeError } = await withProfileLock(
       { configPath: context.configPath, profileName: name },
       async () => {
-        const config = await readConfig(context.configPath);
-        const profile = profileOf(config, name);
+        // Only a holder of this profile's lock changes the profile, so it stays as read here.
+        const profile = profileOf(await readConfig(context.configPath), name);
         if (!profile) {
           throw new CliError(
             "CLI_INVALID_INPUT",
@@ -483,11 +483,12 @@ const logout: HandwrittenCommand = {
           }
         }
         await forgetCredential(context.keychain, name, profile.credential);
-        delete config.profiles[name];
-        if (config.currentProfile === name) {
-          delete config.currentProfile;
-        }
-        await writeConfig(context.configPath, config);
+        await updateConfig(context.configPath, (config) => {
+          delete config.profiles[name];
+          if (config.currentProfile === name) {
+            delete config.currentProfile;
+          }
+        });
         return { profile, revokeError };
       },
     );

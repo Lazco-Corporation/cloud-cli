@@ -72,7 +72,7 @@ Install every target's native package first with `bun install --frozen-lockfile 
 `bun build --compile` leaves the darwin-x64 binary with a signature that no longer matches the file, and macOS then refuses it the keychain.
 So every macOS binary gets an ad-hoc signature, with `rcodesign` on Linux (`scripts/install-rcodesign.sh`) or `codesign` on macOS.
 
-`.github/workflows/keychain.yml` proves the keychain of the binary and of the npm package on all five targets, on every push that touches the credential code or the build.
+`.github/workflows/keychain.yml` proves the keychain and the refresh lock of the binary and of the npm package on all five targets, on every push to a branch that changes a file under its `paths`, and on every tag.
 
 ## Sign-in commands
 
@@ -170,6 +170,10 @@ A lock left by a process that died goes stale after 10 seconds.
 - A profile that another process signed out or signed in again in the meantime is `CLI_NOT_LOGGED_IN`. A running `lazco mcp` never moves to another sign-in by itself.
 
 Login and logout take the same lock while they write the profile, so a refresh never writes a pair back into an entry that a login just replaced.
+
+Every write of the config file reads, changes and writes it under one more lock, `<config dir>/lazco/locks/_config.lock`, which no profile name can share because a profile name starts with a letter or a digit.
+So a refresh of a file-store profile and a write of another profile at the same moment both stay in the file.
+A process takes the config lock inside a profile lock, never the other way, so the two locks never wait on each other in a circle.
 
 ## Where a credential never goes
 

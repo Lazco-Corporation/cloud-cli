@@ -45,6 +45,23 @@ describe("the loopback listener", () => {
     expect(again === undefined || again.status === 404).toBe(true);
   });
 
+  test("falls back to ::1 when the IPv4 address cannot be bound", async () => {
+    // 192.0.2.1 (TEST-NET-1) is on no interface, so binding it fails as a missing 127.0.0.1 would.
+    const listener = await startLoopback(["192.0.2.1", "::1"]);
+    expect(listener.redirectUri).toMatch(/^http:\/\/\[::1\]:\d+\/callback$/);
+    const waiting = listener.callback(5000);
+    expect((await fetch(`${listener.redirectUri}?state=s`)).status).toBe(200);
+    expect((await waiting).get("state")).toBe("s");
+  });
+
+  test("no address that can be bound is CLI_INTERNAL naming --device", async () => {
+    const error = (await startLoopback(["192.0.2.1"]).catch(
+      (thrown: unknown) => thrown,
+    )) as CliError;
+    expect(error.code).toBe("CLI_INTERNAL");
+    expect(error.message).toContain("--device");
+  });
+
   test("no callback within the time is CLI_TIMEOUT, and the port is closed", async () => {
     const listener = await startLoopback();
     const error = (await listener.callback(50).catch((thrown: unknown) => thrown)) as CliError;

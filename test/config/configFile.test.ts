@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { readConfig, writeConfig } from "../../src/config/configFile";
+import { readConfig, updateConfig, writeConfig } from "../../src/config/configFile";
 import { configFilePath } from "../../src/config/paths";
 import { CliError } from "../../src/core/errors";
 import { makeHome } from "../helpers/cli";
@@ -184,6 +184,34 @@ describe("the config file", () => {
     };
     await writeConfig(path, config);
     expect(await readConfig(path)).toEqual(config);
+  });
+
+  test("updates at once never lose one another's write", async () => {
+    const names = Array.from({ length: 8 }, (_, index) => `p${index}`);
+    await Promise.all(
+      names.map((name) =>
+        updateConfig(path, async (config) => {
+          // A slow change, so every update reads the file before the others write.
+          await Bun.sleep(5);
+          config.profiles[name] = {
+            apiUrl: "https://api.lazco.tw/v1",
+            organization: { id: "org-1", name: "Org" },
+            method: "token",
+            credential: { store: "file", token: name },
+          };
+        }),
+      ),
+    );
+    expect(Object.keys((await readConfig(path)).profiles).sort()).toEqual(names);
+  });
+
+  test("an update whose change throws writes nothing", async () => {
+    const failed = await updateConfig(path, (config) => {
+      config.currentProfile = "x";
+      throw new Error("no");
+    }).catch((error: unknown) => error);
+    expect((failed as Error).message).toBe("no");
+    expect(await readConfig(path)).toEqual({ version: 1, profiles: {} });
   });
 
   test("an unknown version is CLI_INVALID_INPUT", async () => {
