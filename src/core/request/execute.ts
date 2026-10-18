@@ -5,6 +5,8 @@ import { type Clock, SYSTEM_CLOCK } from "./clock";
 import { pathValueProblem } from "./guard";
 
 export const DEFAULT_WAIT_SECONDS = 600;
+/** The encoding of the ETag read: none, so no proxy can make the tag weak. */
+export const ETAG_READ_ENCODING = "identity";
 const FIRST_TASK_READ_MS = 2000;
 const TASK_READ_GROWTH = 1.5;
 const MAX_TASK_READ_MS = 10_000;
@@ -57,7 +59,7 @@ async function readCurrentEtag(client: ApiClient, path: string): Promise<string>
   const response = await client.call({
     method: "GET",
     path,
-    headers: { "Accept-Encoding": "identity" },
+    headers: { "Accept-Encoding": ETAG_READ_ENCODING },
   });
   const etag = response.headers.get("etag");
   if (!etag) {
@@ -65,6 +67,17 @@ async function readCurrentEtag(client: ApiClient, path: string): Promise<string>
       method: "GET",
       url: client.url({ path }),
     });
+  }
+  if (etag.startsWith("W/")) {
+    throw new CliError(
+      "CLI_BAD_RESPONSE",
+      "The API sent a weak ETag, which If-Match never matches",
+      {
+        method: "GET",
+        url: client.url({ path }),
+        etag,
+      },
+    );
   }
   return etag;
 }

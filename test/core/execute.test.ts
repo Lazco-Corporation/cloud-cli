@@ -218,29 +218,65 @@ describe("ETag flow", () => {
     ]);
   });
 
-  test("the ETag read asks for no compression, so a proxy cannot make the tag weak", async () => {
+  test("the ETag read asks for no compression, so a compressing edge cannot make the tag weak", async () => {
+    // Like the staging edge: a compressed answer carries the weak form of the tag.
     api.handler = (request) =>
       request.method === "GET"
-        ? json(200, { rrsets: [] }, { etag: '"43"' })
+        ? json(
+            200,
+            { rrsets: [] },
+            {
+              etag: request.headers["accept-encoding"] === "identity" ? '"43"' : 'W/"43"',
+            },
+          )
         : json(200, { version: 44 });
     const { run } = setup();
     await run("dns records set", { zoneId: "z-1", rrsets: [] });
-    expect(api.requests[0]?.headers["accept-encoding"]).toBe("identity");
+    expect(api.requests.map((request) => request.headers["if-match"])).toEqual([undefined, '"43"']);
   });
 
-  test("a bare ifMatch gets the quotes of an entity tag, and a quoted, weak or * one passes", async () => {
+  test("a weak ETag from the read is CLI_BAD_RESPONSE and nothing is written", async () => {
+    api.handler = () => json(200, { rrsets: [] }, { etag: 'W/"43"' });
+    const { run } = setup();
+    const error = (await run("dns records set", { zoneId: "z-1", rrsets: [] }).catch(
+      (failure: unknown) => failure,
+    )) as CliError;
+    expect(error.code).toBe("CLI_BAD_RESPONSE");
+    expect(api.requests.map((request) => request.method)).toEqual(["GET"]);
+  });
+
+  test("a bare ifMatch gets the quotes of an entity tag, and a quoted one or * passes", async () => {
     api.handler = () => json(200, { version: 44 });
     const { run } = setup();
-    for (const ifMatch of ["7", '"7"', 'W/"7"', "*"]) {
+    for (const ifMatch of ["7", '"7"', '""', "*"]) {
       await run("dns records set", { zoneId: "z-1", rrsets: [], ifMatch });
     }
     expect(api.requests.map((request) => request.headers["if-match"])).toEqual([
       '"7"',
       '"7"',
-      'W/"7"',
+      '""',
       "*",
     ]);
   });
+
+  for (const [label, ifMatch] of [
+    ["a weak tag", 'W/"7"'],
+    ["a stray quote", '7"'],
+    ["a quote inside", '"a"b"'],
+    ["a newline", "7\n8"],
+    ["a space", "7 8"],
+    ["nothing", ""],
+  ] as const) {
+    test(`an ifMatch with ${label} is CLI_INVALID_INPUT and sends nothing`, async () => {
+      const { run } = setup();
+      // The refusal comes while the request is prepared, before anything is sent.
+      const error = (await Promise.resolve()
+        .then(() => run("dns records set", { zoneId: "z-1", rrsets: [], ifMatch }))
+        .catch((failure: unknown) => failure)) as CliError;
+      expect(error.code).toBe("CLI_INVALID_INPUT");
+      expect(api.requests).toHaveLength(0);
+    });
+  }
 
   test("a GET without an ETag is CLI_BAD_RESPONSE and nothing is written", async () => {
     api.handler = () => json(200, { rrsets: [] });

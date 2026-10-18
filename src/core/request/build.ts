@@ -1,3 +1,4 @@
+import { CliError } from "../errors";
 import { BODY_INPUT, IF_MATCH_INPUT, type Operation } from "../generate/operations";
 import type { ApiRequest } from "./client";
 import { guardPathParameters } from "./guard";
@@ -75,11 +76,32 @@ export function prepareRequest(
   return { method: operation.method.toUpperCase(), path, query, headers, body };
 }
 
+/** The characters of an entity tag between its quotes (RFC 9110, `etagc`). */
+const ENTITY_TAG_CHARACTERS = "[\\x21\\x23-\\x7E\\x80-\\xFF]*";
+const STRONG_ENTITY_TAG = new RegExp(`^"${ENTITY_TAG_CHARACTERS}"$`);
+const BARE_VERSION = new RegExp(`^${ENTITY_TAG_CHARACTERS}$`);
+
 /**
- * An `ifMatch` as an entity tag. A bare version such as `7` gets its quotes,
- * because `If-Match: 7` is no entity tag and never matches. A quoted tag, a
- * weak one and `*` pass as given.
+ * An `ifMatch` as a strong entity tag. A bare version such as `7` gets its
+ * quotes, because `If-Match: 7` is no entity tag. A quoted tag and `*` pass as
+ * given. A weak tag is refused, because `If-Match` compares strongly and a
+ * weak tag never matches, and so is a value that is no entity tag at all.
  */
 export function asEntityTag(value: string): string {
-  return value === "*" || /^(W\/)?".*"$/.test(value) ? value : `"${value}"`;
+  if (value === "*" || STRONG_ENTITY_TAG.test(value)) {
+    return value;
+  }
+  if (value.startsWith("W/")) {
+    throw new CliError(
+      "CLI_INVALID_INPUT",
+      "ifMatch is a weak entity tag, which If-Match never matches",
+      [{ field: IF_MATCH_INPUT, message: 'must be a strong entity tag, such as "7"' }],
+    );
+  }
+  if (value.length > 0 && BARE_VERSION.test(value)) {
+    return `"${value}"`;
+  }
+  throw new CliError("CLI_INVALID_INPUT", "ifMatch is no entity tag", [
+    { field: IF_MATCH_INPUT, message: 'must be a version such as 7, or an entity tag such as "7"' },
+  ]);
 }

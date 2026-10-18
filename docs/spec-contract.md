@@ -54,7 +54,9 @@ Each operation has one input object, the same for its command and its tool.
 - A name clash with a parameter, or a body that is not an object, puts the whole body under `body`.
 - `concurrency: etag` adds `ifMatch`.
   A bare version such as `7` is sent as the entity tag `"7"`.
+  A weak tag, or a value that is no entity tag, is `CLI_INVALID_INPUT`, because `If-Match` compares strongly.
   Without `ifMatch`, the CLI reads the ETag with `Accept-Encoding: identity`, because a proxy that compresses the answer makes the tag weak, and `If-Match` never matches a weak tag.
+  A weak ETag from that read is `CLI_BAD_RESPONSE`, and nothing is written.
 - Local `$ref`s are resolved into the schema. A cyclic one stays in `$defs`.
 - A key that is no input is refused, unless the body schema sets `additionalProperties`.
 
