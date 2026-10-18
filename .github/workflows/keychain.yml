@@ -83,6 +83,17 @@ jobs:
           path: build
       - name: Install the npm package
         run: npm install --global build/npm/lazco-cli.tgz
+      # Some macOS images start with the login keychain locked, as no user signed in.
+      # A desktop session has an unlocked default keychain, so the proof makes one.
+      - name: Unlock a default keychain
+        if: runner.os == 'macOS'
+        run: |
+          keychain="$RUNNER_TEMP/proof.keychain-db"
+          security create-keychain -p keychain-proof "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p keychain-proof "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security default-keychain -d user -s "$keychain"
       - name: Start a Secret Service
         if: runner.os == 'Linux'
         run: |

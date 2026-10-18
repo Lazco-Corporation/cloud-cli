@@ -90,7 +90,8 @@ public static class LazcoCredentials {
   public static extern void CredFree(IntPtr buffer);
   public static string[] Targets(string filter) {
     int count; IntPtr list;
-    if (!CredEnumerate(filter, 0, out count, out list)) { return new string[0]; }
+    // A filter takes a trailing "*" only, so the caller enumerates all and filters itself.
+    if (!CredEnumerate(filter, filter == null ? 1 : 0, out count, out list)) { return new string[0]; }
     var targets = new string[count];
     for (int index = 0; index < count; index++) {
       var item = Marshal.ReadIntPtr(list, index * IntPtr.Size);
@@ -102,7 +103,7 @@ public static class LazcoCredentials {
   }
 }
 '@
-[LazcoCredentials]::Targets('*${SERVICE}*') | ForEach-Object { $_ }
+[LazcoCredentials]::Targets($null) | Where-Object { $_ -like '*${SERVICE}*' } | ForEach-Object { $_ }
 `;
     const result = await run("powershell.exe", [
       "-NoProfile",
