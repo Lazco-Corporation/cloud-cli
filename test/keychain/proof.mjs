@@ -146,6 +146,7 @@ const shell = process.platform === "win32" && !/\.exe$/i.test(command);
 const lazco = (args, input) =>
   run(command, [...commandArguments, ...args, "--profile", profile], { env, input, shell });
 
+let account;
 try {
   const login = await lazco(["auth", "login", "--with-token", "--api-url", apiUrl], TOKEN);
   if (login.code !== 0) {
@@ -167,8 +168,8 @@ try {
     fail("the config file holds the token");
   }
   // The account is the profile name and a random suffix of this login, which the config names.
-  const account = JSON.parse(configText).profiles[profile]?.credential?.account;
-  if (typeof account !== "string" || !account.startsWith(`${profile}@`)) {
+  account = JSON.parse(configText).profiles[profile]?.credential?.account;
+  if (typeof account !== "string" || !new RegExp(`^${profile}@[0-9a-f]{16}$`).test(account)) {
     fail(`the config names no keychain account of ${profile}: ${configText}`);
   }
   if (!(await osToolFinds(account))) {
@@ -186,6 +187,10 @@ try {
   console.log("the OS tool finds nothing after logout");
   console.log(`keychain proof: PASS on ${process.platform}-${process.arch} with ${command}`);
 } finally {
+  // A proof that failed after login leaves its entry, and a random account is never found again.
+  if (process.exitCode && account && (await osToolFinds(account).catch(() => false))) {
+    await lazco(["auth", "logout"]).catch(() => undefined);
+  }
   server.close();
   rmSync(home, { recursive: true, force: true });
 }

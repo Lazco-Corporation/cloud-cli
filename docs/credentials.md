@@ -45,8 +45,13 @@ It has mode 0600, is written to a temporary file and renamed, and is checked wit
 
 `src/credentials/keychain.ts` stores the token with `@napi-rs/keyring`, under service `tw.lazco.cli` and the account that the profile's `credential.account` names.
 
-- Each login makes a new account: the profile name, `@`, and 16 random hexadecimal characters, such as `default@3fa9c2d17b04e815`. So two config files with one profile name, through another `XDG_CONFIG_HOME` or `APPDATA`, never share an entry, and a token never reaches the API URL of the other file.
-- Login writes the new entry, then the config file, and only then deletes the entry of the profile's previous login. When the config file cannot be written, it deletes the new entry, and the old login keeps working.
+- Each login makes a new account: the profile name, `@`, and 16 random hexadecimal characters, such as `default@3fa9c2d17b04e815`.
+  So two config files with one profile name, through another `XDG_CONFIG_HOME` or `APPDATA`, never share an entry, and a token never reaches the API URL of the other file.
+  The config file fails its schema when an account does not start with the name of its profile.
+- Login writes the new entry, then the config file, and only then deletes the entry of the profile's previous login.
+  When the config file cannot be written, it deletes the new entry, and the old login keeps working.
+- A login that is killed halfway, or a delete of an old entry that fails, can leave an entry that no config file names.
+  List the entries with the OS's own tool, and delete the ones that no `credential.account` names: `security dump-keychain | grep -A4 tw.lazco.cli` on macOS, `secret-tool search --all service tw.lazco.cli` on Linux, and the Windows Credentials of the Credential Manager, whose names end in `.tw.lazco.cli`.
 
 - macOS uses the login keychain, Windows the Credential Manager, Linux the Secret Service.
 - Every entry pins the Linux store `secret-service`, so a token never lands in the kernel keyring, which a reboot clears.

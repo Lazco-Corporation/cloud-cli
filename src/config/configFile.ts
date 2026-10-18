@@ -11,18 +11,18 @@ export const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
  * characters of one login, so two config files with one profile name never
  * share an entry.
  */
-export const KEYCHAIN_ACCOUNT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}@[0-9a-f]{16}$/;
+export const KEYCHAIN_ACCOUNT = new RegExp(`${PROFILE_NAME.source.slice(0, -1)}@[0-9a-f]{16}$`);
 
 export const DEFAULT_PROFILE = "default";
 
 const profileNameSchema = z.string().regex(PROFILE_NAME, "is not a valid profile name");
 
 const credentialSchema = z.discriminatedUnion("store", [
-  z.object({
+  z.looseObject({
     store: z.literal("keychain"),
     account: z.string().regex(KEYCHAIN_ACCOUNT, "is not a valid keychain account"),
   }),
-  z.object({ store: z.literal("file"), token: z.string().min(1) }),
+  z.looseObject({ store: z.literal("file"), token: z.string().min(1) }),
 ]);
 
 const profileSchema = z.looseObject({
@@ -41,7 +41,21 @@ const configSchema = z
     (config) =>
       config.currentProfile === undefined || Object.hasOwn(config.profiles, config.currentProfile),
     { message: "names a profile that does not exist", path: ["currentProfile"] },
-  );
+  )
+  .superRefine((config, context) => {
+    for (const [name, profile] of Object.entries(config.profiles)) {
+      if (
+        profile.credential.store === "keychain" &&
+        !profile.credential.account.startsWith(`${name}@`)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: `names the keychain account of another profile`,
+          path: ["profiles", name, "credential", "account"],
+        });
+      }
+    }
+  });
 
 export type StoredCredential = z.infer<typeof credentialSchema>;
 export type Profile = z.infer<typeof profileSchema>;

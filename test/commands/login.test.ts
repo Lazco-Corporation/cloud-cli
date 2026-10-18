@@ -208,6 +208,12 @@ describe("lazco auth login", () => {
         );
         expect(failed.code).toBe(1);
         expect(tokensOf(keychain, "default")).toEqual([FAKE_TOKEN]);
+        api.requests.length = 0;
+        const status = await runInProcess(["auth", "status"], { env, keychain });
+        expect(status.code).toBe(0);
+        expect(api.requests.map((request) => request.headers.authorization)).toEqual([
+          `Bearer ${FAKE_TOKEN}`,
+        ]);
       } finally {
         await chmod(dirname(configPath), 0o700);
         otherApi.stop();
