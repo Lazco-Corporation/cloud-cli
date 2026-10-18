@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, readFile, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
   cliEnv,
   FAKE_TOKEN,
@@ -10,7 +10,7 @@ import {
   runLazcoOnTerminal,
 } from "../helpers/cli";
 import { FakeApi, json } from "../helpers/fakeApi";
-import { brokenKeychain, memoryKeychain } from "../helpers/keychain";
+import { brokenKeychain, memoryKeychain, tokensOf } from "../helpers/keychain";
 
 const OTHER_TOKEN = `lz_live_${"0".repeat(48)}${"12345678".repeat(2)}`;
 
@@ -133,7 +133,7 @@ describe("lazco auth login", () => {
       store: "keychain",
       current: true,
     });
-    expect(keychain.entries.get("default")).toBe(FAKE_TOKEN);
+    expect(tokensOf(keychain, "default")).toEqual([FAKE_TOKEN]);
     for (const text of [run.stdout, run.stderr, (await configText()) as string]) {
       expect(text).not.toContain(FAKE_TOKEN);
       expect(text).not.toContain(FAKE_TOKEN.slice(-8));
@@ -145,7 +145,10 @@ describe("lazco auth login", () => {
         default: {
           apiUrl: api.apiUrl,
           organization: { id: "org-1", name: "First Org" },
-          credential: { store: "keychain" },
+          credential: {
+            store: "keychain",
+            account: expect.stringMatching(/^default@[0-9a-f]{16}$/),
+          },
         },
       },
     });
@@ -183,7 +186,106 @@ describe("lazco auth login", () => {
     const again = await login("default", OTHER_TOKEN);
     expect(again.code).toBe(0);
     expect(again.stderr).toContain("profile default now signs in to Second Org, not First Org");
-    expect(keychain.entries.get("default")).toBe(OTHER_TOKEN);
+    expect(tokensOf(keychain, "default")).toEqual([OTHER_TOKEN]);
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "a config file that cannot be written keeps the old entry and drops the new one",
+    async () => {
+      const keychain = memoryKeychain();
+      const otherApi = whoamiApi();
+      const env = cliEnv(home.home);
+      try {
+        await runInProcess(["auth", "login", "--with-token", "--api-url", api.apiUrl], {
+          env,
+          stdin: FAKE_TOKEN,
+          keychain,
+        });
+        await chmod(dirname(configPath), 0o500);
+        const failed = await runInProcess(
+          ["auth", "login", "--with-token", "--api-url", otherApi.apiUrl],
+          { env, stdin: OTHER_TOKEN, keychain },
+        );
+        expect(failed.code).toBe(1);
+        expect(tokensOf(keychain, "default")).toEqual([FAKE_TOKEN]);
+        api.requests.length = 0;
+        const status = await runInProcess(["auth", "status"], { env, keychain });
+        expect(status.code).toBe(0);
+        expect(api.requests.map((request) => request.headers.authorization)).toEqual([
+          `Bearer ${FAKE_TOKEN}`,
+        ]);
+      } finally {
+        await chmod(dirname(configPath), 0o700);
+        otherApi.stop();
+      }
+    },
+  );
+
+  test("two config files with one profile name keep two keychain entries", async () => {
+    const keychain = memoryKeychain();
+    const otherApi = whoamiApi();
+    try {
+      const firstEnv = cliEnv(home.home);
+      const secondEnv = cliEnv(home.home, { XDG_CONFIG_HOME: join(home.home, "second-config") });
+      const first = await runInProcess(["auth", "login", "--with-token", "--api-url", api.apiUrl], {
+        env: firstEnv,
+        stdin: FAKE_TOKEN,
+        keychain,
+      });
+      expect(first.code).toBe(0);
+      const second = await runInProcess(
+        ["auth", "login", "--with-token", "--api-url", otherApi.apiUrl],
+        { env: secondEnv, stdin: OTHER_TOKEN, keychain },
+      );
+      expect(second.code).toBe(0);
+      expect(tokensOf(keychain, "default").sort()).toEqual([FAKE_TOKEN, OTHER_TOKEN].sort());
+      api.requests.length = 0;
+      const status = await runInProcess(["auth", "status"], { env: firstEnv, keychain });
+      expect(status.code).toBe(0);
+      expect(api.requests.map((request) => request.headers.authorization)).toEqual([
+        `Bearer ${FAKE_TOKEN}`,
+      ]);
+      const logout = await runInProcess(["auth", "logout"], { env: firstEnv, keychain });
+      expect(logout.code).toBe(0);
+      expect(tokensOf(keychain, "default")).toEqual([OTHER_TOKEN]);
+      otherApi.requests.length = 0;
+      const secondStatus = await runInProcess(["auth", "status"], { env: secondEnv, keychain });
+      expect(secondStatus.code).toBe(0);
+      expect(otherApi.requests.map((request) => request.headers.authorization)).toEqual([
+        `Bearer ${OTHER_TOKEN}`,
+      ]);
+    } finally {
+      otherApi.stop();
+    }
+  });
+
+  test("an old entry that cannot be deleted is named on stderr, and the new login works", async () => {
+    const memory = memoryKeychain();
+    let refuseDeletes = false;
+    const keychain = {
+      ...memory,
+      delete: async (account: string) => {
+        if (refuseDeletes) throw new Error("the keychain is locked");
+        return memory.delete(account);
+      },
+    };
+    const env = cliEnv(home.home);
+    const login = (token: string) =>
+      runInProcess(["auth", "login", "--with-token", "--api-url", api.apiUrl], {
+        env,
+        stdin: token,
+        keychain,
+      });
+    expect((await login(FAKE_TOKEN)).code).toBe(0);
+    const [oldAccount] = [...memory.entries.keys()];
+    refuseDeletes = true;
+    const again = await login(OTHER_TOKEN);
+    expect(again.code).toBe(0);
+    expect(again.stderr).toContain(
+      `the keychain entry ${oldAccount} of the previous login could not be deleted`,
+    );
+    expect(again.stderr).not.toContain(FAKE_TOKEN.slice(-8));
+    expect(tokensOf(memory, "default").sort()).toEqual([FAKE_TOKEN, OTHER_TOKEN].sort());
   });
 
   test("logging in again without --api-url keeps the profile's own API URL", async () => {

@@ -58,7 +58,7 @@ describe("the config file", () => {
         default: {
           apiUrl: "https://api.lazco.tw/v1",
           organization: { id: "org-1", name: "Org" },
-          credential: { store: "keychain" as const },
+          credential: { store: "keychain" as const, account: "default@0123456789abcdef" },
         },
       },
     };
@@ -97,6 +97,45 @@ describe("the config file", () => {
     await writeFile(path, JSON.stringify({ version: 1, currentProfile: "gone", profiles: {} }));
     const error = await invalidInput(readConfig(path));
     expect(error.message).toContain("currentProfile");
+  });
+
+  test("a keychain account of another profile is CLI_INVALID_INPUT", async () => {
+    await mkdir(dirname(path), { recursive: true });
+    const organization = { id: "org-1", name: "Org" };
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        profiles: {
+          staging: {
+            apiUrl: "https://api-staging.lazco.tw/v1",
+            organization,
+            credential: { store: "keychain", account: "default@0123456789abcdef" },
+          },
+        },
+      }),
+    );
+    const error = await invalidInput(readConfig(path));
+    expect(error.message).toContain("another profile");
+  });
+
+  test("a field of a credential that this version does not know is kept", async () => {
+    const config = {
+      version: 1 as const,
+      profiles: {
+        default: {
+          apiUrl: "https://api.lazco.tw/v1",
+          organization: { id: "org-1", name: "Org" },
+          credential: {
+            store: "keychain" as const,
+            account: "default@0123456789abcdef",
+            later: true,
+          },
+        },
+      },
+    };
+    await writeConfig(path, config);
+    expect(await readConfig(path)).toEqual(config);
   });
 
   test("an unknown version is CLI_INVALID_INPUT", async () => {

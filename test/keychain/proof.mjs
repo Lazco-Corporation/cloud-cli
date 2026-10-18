@@ -60,14 +60,14 @@ function run(file, args, options = {}) {
   });
 }
 
-/** True when the OS's own tool finds the entry of the profile. */
-async function osToolFinds() {
+/** True when the OS's own tool finds the entry of a keychain account. */
+async function osToolFinds(account) {
   if (process.platform === "darwin") {
-    const result = await run("security", ["find-generic-password", "-s", SERVICE, "-a", profile]);
+    const result = await run("security", ["find-generic-password", "-s", SERVICE, "-a", account]);
     return result.code === 0;
   }
   if (process.platform === "linux") {
-    const result = await run("secret-tool", ["lookup", "service", SERVICE, "username", profile]);
+    const result = await run("secret-tool", ["lookup", "service", SERVICE, "username", account]);
     return result.code === 0 && result.stdout.trim() === TOKEN;
   }
   if (process.platform === "win32") {
@@ -91,7 +91,7 @@ public static class LazcoCredential {
   }
 }
 '@
-if ([LazcoCredential]::Exists('${profile}.${SERVICE}')) { 'found' } else { 'absent' }
+if ([LazcoCredential]::Exists('${account}.${SERVICE}')) { 'found' } else { 'absent' }
 `;
     const result = await run("powershell.exe", [
       "-NoProfile",
@@ -146,15 +146,19 @@ const shell = process.platform === "win32" && !/\.exe$/i.test(command);
 const lazco = (args, input) =>
   run(command, [...commandArguments, ...args, "--profile", profile], { env, input, shell });
 
+/** The profile name as a literal inside a regular expression. */
+const profilePattern = profile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+let account;
+let passed = false;
 try {
-  if (await osToolFinds()) {
-    fail(`an entry for ${profile} already exists before the proof`);
-  }
-
   const login = await lazco(["auth", "login", "--with-token", "--api-url", apiUrl], TOKEN);
   if (login.code !== 0) {
     fail(`login exited ${login.code}: ${login.stderr.trim()}`);
   }
+  // Read the account at once, so a later failure can still remove the entry.
+  // It is the profile name and a random suffix of this login, which the config names.
+  const configText = readFileSync(configPath, "utf8");
+  account = JSON.parse(configText).profiles[profile]?.credential?.account;
   const loggedIn = JSON.parse(login.stdout);
   console.log(`login: ${login.stdout.trim()}`);
   if (loggedIn.store !== "keychain") {
@@ -166,24 +170,35 @@ try {
   if (status.code !== 0 || JSON.parse(status.stdout).store !== "keychain") {
     fail(`auth status did not report keychain: ${status.stderr.trim()}`);
   }
-  if (readFileSync(configPath, "utf8").includes(TOKEN.slice(-8))) {
+  if (configText.includes(TOKEN.slice(-8))) {
     fail("the config file holds the token");
   }
-  if (!(await osToolFinds())) {
-    fail("the OS tool does not find the entry after login");
+  if (
+    typeof account !== "string" ||
+    !new RegExp(`^${profilePattern}@[0-9a-f]{16}$`).test(account)
+  ) {
+    fail(`the config names no keychain account of ${profile}: ${configText}`);
   }
-  console.log("the OS tool finds the entry after login");
+  if (!(await osToolFinds(account))) {
+    fail(`the OS tool does not find the entry ${account} after login`);
+  }
+  console.log(`the OS tool finds the entry ${account} after login`);
 
   const logout = await lazco(["auth", "logout"]);
   if (logout.code !== 0) {
     fail(`logout exited ${logout.code}: ${logout.stderr.trim()}`);
   }
-  if (await osToolFinds()) {
-    fail("the OS tool still finds the entry after logout");
+  if (await osToolFinds(account)) {
+    fail(`the OS tool still finds the entry ${account} after logout`);
   }
   console.log("the OS tool finds nothing after logout");
   console.log(`keychain proof: PASS on ${process.platform}-${process.arch} with ${command}`);
+  passed = true;
 } finally {
+  // A proof that failed after login leaves its entry, and a random account is never found again.
+  if (!passed && typeof account === "string" && (await osToolFinds(account).catch(() => false))) {
+    await lazco(["auth", "logout"]).catch(() => undefined);
+  }
   server.close();
   rmSync(home, { recursive: true, force: true });
 }

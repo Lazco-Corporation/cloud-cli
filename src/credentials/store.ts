@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { StoredCredential } from "../config/configFile";
 import { CliError } from "../core/errors";
 import type { Keychain } from "./keychain";
@@ -6,26 +7,33 @@ function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** A new keychain account for one login of a profile, such as `default@3fa9c2d17b04e815`. */
+export function newKeychainAccount(profileName: string): string {
+  return `${profileName}@${randomBytes(8).toString("hex")}`;
+}
+
 /**
- * Puts a token in the keychain under the profile's name. When the keychain
- * throws, the token goes into the config file instead, and `keychainError`
- * says why, so login can tell the user.
+ * Puts a token in the keychain under a new account of the profile, which the
+ * config file then names, so the entry belongs to that one config file. When
+ * the keychain throws, the token goes into the config file instead, and
+ * `keychainError` says why, so login can tell the user.
  */
 export async function storeCredential(
   keychain: Keychain,
   profileName: string,
   token: string,
 ): Promise<{ credential: StoredCredential; keychainError?: string }> {
+  const account = newKeychainAccount(profileName);
   try {
-    await keychain.set(profileName, token);
-    if ((await keychain.get(profileName)) !== token) {
+    await keychain.set(account, token);
+    if ((await keychain.get(account)) !== token) {
       throw new Error("the keychain did not return the token it was given");
     }
-    return { credential: { store: "keychain" } };
+    return { credential: { store: "keychain", account } };
   } catch (error) {
-    // The config now names the file store, so logout never looks in the
-    // keychain again. Take out whatever the keychain may still hold.
-    await keychain.delete(profileName).catch(() => undefined);
+    // The config names the file store, so nothing reads this account again.
+    // Take out whatever the keychain may still hold.
+    await keychain.delete(account).catch(() => undefined);
     return { credential: { store: "file", token }, keychainError: reason(error) };
   }
 }
@@ -41,7 +49,7 @@ export async function loadCredential(
   }
   let token: string | null;
   try {
-    token = await keychain.get(profileName);
+    token = await keychain.get(credential.account);
   } catch (error) {
     throw new CliError(
       "CLI_INTERNAL",
@@ -67,7 +75,7 @@ export async function forgetCredential(
     return;
   }
   try {
-    await keychain.delete(profileName);
+    await keychain.delete(credential.account);
   } catch (error) {
     throw new CliError(
       "CLI_INTERNAL",

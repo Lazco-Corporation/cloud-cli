@@ -99,12 +99,26 @@ const login: HandwrittenCommand = {
     const organization = organizationOf(whoami);
 
     const { credential, keychainError } = await storeCredential(context.keychain, name, token);
-    if (previous?.credential.store === "keychain" && credential.store === "file") {
-      await forgetCredential(context.keychain, name, previous.credential).catch(() => undefined);
-    }
     config.profiles[name] = { apiUrl, organization, credential };
     config.currentProfile ??= name;
-    await writeConfig(context.configPath, config);
+    try {
+      await writeConfig(context.configPath, config);
+    } catch (error) {
+      // The old config still names the old entry, so the new one serves nobody.
+      await forgetCredential(context.keychain, name, credential).catch(() => undefined);
+      throw error;
+    }
+    // Only now that the config names the new entry is the old one unused.
+    if (previous) {
+      await forgetCredential(context.keychain, name, previous.credential).catch(() => {
+        if (previous.credential.store === "keychain") {
+          writeNotice(
+            context.io,
+            `warning: the keychain entry ${previous.credential.account} of the previous login could not be deleted. Delete it with the OS's keychain tool, see docs/credentials.md of @lazco/cli`,
+          );
+        }
+      });
+    }
 
     if (keychainError !== undefined) {
       writeNotice(
