@@ -60,7 +60,7 @@ The pre-push hook runs gitleaks, the check, the type check and the unit tests.
 - stdout holds only the answer: one JSON object, NDJSON for a list, or MCP messages for `lazco mcp`. Every warning, hint and error goes to stderr.
 - An error is one line `{"error":{...}}` on stderr and exit code 1. The `CLI_` codes in `src/core/errors.ts` are a semver contract: adding, renaming or removing one is a release note.
 - No credential reaches any output, log, cache file or MCP client config. A stored credential goes only to the API URL of its profile.
-- Only sign-in, profiles and credentials, `mcp`, and uploads are hand-written. A wrong command or tool name is fixed in the backend's `x-lazco`, never here.
+- Only sign-in, profiles and credentials, and `mcp` are hand-written commands. An upload is hand-written behavior on a generated command, registered in `KNOWN_UPLOADERS`. A wrong command or tool name is fixed in the backend's `x-lazco`, never here.
 - `src/credentials/nativeKeyring.ts` keeps its one literal `import("@napi-rs/keyring")`, which `scripts/build-binaries.sh` rewrites per target. Without it every binary falls back to the file store and nothing fails.
 - An `x-lazco` value this version does not know skips its operation with one warning. An unknown key is ignored.
 - MCP never offers a `spend` tool, and offers a `destructive` tool only when its operation has `confirm`.

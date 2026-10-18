@@ -10,6 +10,7 @@ on:
     paths:
       - "src/credentials/**"
       - "scripts/build-binaries.sh"
+      - "scripts/install-rcodesign.sh"
       - "test/keychain/**"
       - "package.json"
       - "bun.lock"
