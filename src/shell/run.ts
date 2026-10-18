@@ -15,7 +15,12 @@ import { createAjv } from "../core/request/ajv";
 import { prepareRequest } from "../core/request/build";
 import { ApiClient, type ApiRequest } from "../core/request/client";
 import { type Clock, MONOTONIC_CLOCK, SYSTEM_CLOCK } from "../core/request/clock";
-import { type ExecuteContext, executeOperation, type Task } from "../core/request/execute";
+import {
+  ETAG_READ_ENCODING,
+  type ExecuteContext,
+  executeOperation,
+  type Task,
+} from "../core/request/execute";
 import type { InputProblem } from "../core/request/guard";
 import { nextPageFlag, readPage, walkPages } from "../core/request/paginate";
 import { RateLimiter } from "../core/request/rateLimiter";
@@ -458,7 +463,11 @@ function dryRunPreview(
     body: request.body ?? null,
   };
   if (operation.annotation.concurrency === "etag" && request.headers?.["If-Match"] === undefined) {
-    preview.ifMatchFrom = { method: "GET", url: client.url({ path: request.path }) };
+    preview.ifMatchFrom = {
+      method: "GET",
+      url: client.url({ path: request.path }),
+      headers: { "Accept-Encoding": ETAG_READ_ENCODING },
+    };
   }
   return preview;
 }
