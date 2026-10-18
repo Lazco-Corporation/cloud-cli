@@ -1,4 +1,4 @@
-import { CliError } from "../errors";
+import { ApiError, CliError } from "../errors";
 import type { Operation } from "../generate/operations";
 import { type ApiClient, type ApiRequest, requireJson } from "./client";
 import { type Clock, SYSTEM_CLOCK } from "./clock";
@@ -64,9 +64,33 @@ async function readCurrentEtag(client: ApiClient, path: string): Promise<string>
 }
 
 /**
+ * The same error with the 202 body and the task id added, so a wait that ends
+ * early never loses a value the 202 sent only once.
+ */
+function keepAccepted(error: unknown, accepted: unknown, taskId: string): unknown {
+  if (error instanceof ApiError) {
+    return new ApiError(error.status, error.code, error.message, {
+      ...error.fields,
+      taskId,
+      accepted,
+    });
+  }
+  if (error instanceof CliError) {
+    const details =
+      error.details !== null && typeof error.details === "object" && !Array.isArray(error.details)
+        ? error.details
+        : error.details === undefined
+          ? {}
+          : { cause: error.details };
+    return new CliError(error.code, error.message, { ...details, taskId, accepted });
+  }
+  return error;
+}
+
+/**
  * Reads the task 2 seconds after the 202, then 1.5 times later each time, up
- * to 10 seconds apart. The answer keeps the 202 body, because a value such as
- * a rebuild's password is sent there only.
+ * to 10 seconds apart. The answer and every error keep the 202 body, because a
+ * value such as a rebuild's password is sent there only.
  */
 export async function waitForTask(
   context: ExecuteContext,
@@ -87,18 +111,21 @@ export async function waitForTask(
       throw new CliError(
         "CLI_TIMEOUT",
         `The task did not end within ${options.timeoutSeconds} seconds`,
-        {
-          taskId,
-        },
+        { taskId, accepted },
       );
     }
     await clock.sleep(Math.min(delay, remaining));
     delay = Math.min(delay * TASK_READ_GROWTH, MAX_TASK_READ_MS);
-    const response = await context.client.call({
-      method: "GET",
-      path: `/tasks/${encodeURIComponent(taskId)}`,
-    });
-    const task = requireJson(response) as Task;
+    let task: Task;
+    try {
+      const response = await context.client.call({
+        method: "GET",
+        path: `/tasks/${encodeURIComponent(taskId)}`,
+      });
+      task = requireJson(response) as Task;
+    } catch (error) {
+      throw keepAccepted(error, accepted, taskId);
+    }
     options.onTask?.(task);
     if (task?.status === "completed") {
       return { accepted, task };

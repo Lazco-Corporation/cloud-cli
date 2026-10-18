@@ -177,16 +177,35 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # Also after `already-published`, so a rerun of a tag whose publish worked but whose
+      # release failed still gets its release. Assets already there are kept as they are,
+      # so a rerun never swaps a binary that someone may have checked against SHA256SUMS.
       - name: Create the GitHub release
-        if: github.event_name == 'push' && steps.publish.outputs.result == 'published'
+        if: >-
+          github.event_name == 'push' &&
+          (steps.publish.outputs.result == 'published' || steps.publish.outputs.result == 'already-published')
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           DIST_TAG: ${{ steps.version.outputs.dist-tag }}
         run: |
           set -euo pipefail
+          assets=(build/binaries/*.tar.gz build/binaries/*.zip build/binaries/SHA256SUMS)
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            present="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+            missing=()
+            for asset in "${assets[@]}"; do
+              if ! grep -qxF "$(basename "$asset")" <<< "$present"; then
+                missing+=("$asset")
+              fi
+            done
+            if [ "${#missing[@]}" -gt 0 ]; then
+              gh release upload "$TAG" "${missing[@]}"
+            fi
+            exit 0
+          fi
           args=(--notes-file "$RUNNER_TEMP/release-notes.md" --generate-notes --title "$TAG")
           if [ "$DIST_TAG" = "next" ]; then
             args+=(--prerelease)
           fi
-          gh release create "$TAG" "${args[@]}" build/binaries/*.tar.gz build/binaries/*.zip build/binaries/SHA256SUMS
+          gh release create "$TAG" "${args[@]}" "${assets[@]}"

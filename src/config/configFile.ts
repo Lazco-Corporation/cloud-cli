@@ -37,6 +37,14 @@ export type StoredCredential = z.infer<typeof credentialSchema>;
 export type Profile = z.infer<typeof profileSchema>;
 export type Config = z.infer<typeof configSchema>;
 
+/**
+ * The profile of a name, or `undefined`. Reads own properties only, so a name
+ * such as `constructor` never finds a built-in of the object.
+ */
+export function profileOf(config: Config, name: string): Profile | undefined {
+  return Object.hasOwn(config.profiles, name) ? config.profiles[name] : undefined;
+}
+
 export function emptyConfig(): Config {
   return { version: 1, profiles: {} };
 }

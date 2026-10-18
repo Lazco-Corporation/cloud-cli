@@ -33,6 +33,10 @@ export function pathValueProblem(value: string): string | undefined {
   if (hasControlCharacter(value)) {
     return "must not hold a control character";
   }
+  // `fetch` drops a `.` segment, so `/servers/./x` would reach `/servers/x`.
+  if (value === ".") {
+    return "must not be .";
+  }
   if (value.includes("..")) {
     return "must not hold ..";
   }

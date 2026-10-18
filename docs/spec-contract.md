@@ -75,6 +75,7 @@ An `async: task` operation answers 202 `{ "taskId" }`.
 The CLI reads `GET /v1/tasks/<taskId>` 2 seconds later, then 1.5 times later each time, up to 10 seconds apart, for 600 seconds by default (`--timeout`).
 It prints `{ "accepted", "task" }`, because a value such as a rebuild's password is in the 202 body only.
 `failed` is `CLI_TASK_FAILED`, and the timeout is `CLI_TIMEOUT` with the `taskId`.
+Every error of the wait, a failed task read included, carries the 202 body as `accepted`, so the password is never lost.
 `--no-wait` prints the 202 body at once, and an MCP tool always does.
 
 ## Feature hiding

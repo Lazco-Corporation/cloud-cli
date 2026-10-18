@@ -1,7 +1,7 @@
-import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, realpath } from "node:fs/promises";
 import { basename, delimiter, join } from "node:path";
+import spawn from "cross-spawn";
 import { applyEdits, modify, type ParseError, parse, printParseErrorCode } from "jsonc-parser";
 import { writeFileAtomic } from "../config/atomicFile";
 import type { PathEnvironment } from "../config/paths";
@@ -209,12 +209,23 @@ export function withEntry(
   return applyEdits(source, edits);
 }
 
+/**
+ * Runs a client's CLI. `cross-spawn` runs the `.cmd` shim that an npm install
+ * makes on Windows, with its arguments escaped for `cmd.exe`, which
+ * `execFile` refuses.
+ */
 function run(program: string, args: readonly string[], env: Record<string, string | undefined>) {
   return new Promise<{ code: number; stderr: string }>((resolve) => {
-    execFile(program, [...args], { env: env as NodeJS.ProcessEnv }, (error, _stdout, stderr) => {
-      const code = error ? (typeof error.code === "number" ? error.code : 1) : 0;
-      resolve({ code, stderr: String(stderr) });
+    const child = spawn(program, [...args], {
+      env: env as NodeJS.ProcessEnv,
+      stdio: ["ignore", "ignore", "pipe"],
     });
+    let stderr = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (error) => resolve({ code: 1, stderr: error.message }));
+    child.on("close", (code) => resolve({ code: code ?? 1, stderr }));
   });
 }
 
@@ -297,7 +308,9 @@ export async function installClient(options: {
   }
   const updated = withEntry(text, target.path, target.key, target.entry);
   if (!options.dryRun) {
-    await writeFileAtomic(target.path, updated);
+    // Write through a symlink, so a config file kept in a dotfiles repo stays linked.
+    const writePath = await realpath(target.path).catch(() => target.path);
+    await writeFileAtomic(writePath, updated);
   }
   return { ...base, file: target.path };
 }

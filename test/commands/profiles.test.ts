@@ -161,6 +161,15 @@ describe("lazco auth logout", () => {
     const result = await run(["auth", "logout", "--profile", "nope"]);
     expect(errorOf(result.stderr).code).toBe("CLI_INVALID_INPUT");
   });
+
+  for (const name of ["constructor", "toString", "hasOwnProperty"]) {
+    test(`a profile named ${name} is a profile, not a property of the object`, async () => {
+      const logout = await run(["auth", "logout", "--profile", name]);
+      expect(errorOf(logout.stderr).code).toBe("CLI_INVALID_INPUT");
+      const status = await run(["auth", "status", "--profile", name]);
+      expect(errorOf(status.stderr).code).toBe("CLI_INVALID_INPUT");
+    });
+  }
 });
 
 describe("lazco profile list and profile use", () => {

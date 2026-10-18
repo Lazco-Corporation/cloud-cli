@@ -36,6 +36,7 @@ describe("input guard", () => {
     ["DEL", "srv\u007f"],
     ["a traversal", "../admin"],
     ["dots inside", "a..b"],
+    ["a single dot, which fetch drops as a path segment", "."],
     ["%2e lower case", "%2e%2e"],
     ["%2E upper case", "%2E%2E"],
     ["%2f lower case", "a%2fb"],

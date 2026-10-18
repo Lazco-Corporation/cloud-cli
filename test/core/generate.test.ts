@@ -87,6 +87,18 @@ describe("skips", () => {
     ]);
   });
 
+  test("positionals follow the order of the path, not of the parameter list", () => {
+    const document = loadFixture("surface");
+    const snapshotDelete = document.paths["/v1/servers/{serverId}/snapshots/{snapname}"]?.delete;
+    if (!snapshotDelete?.parameters) throw new Error("fixture changed");
+    snapshotDelete.parameters.reverse();
+    const { operations } = generateSurface(document, ajv);
+    expect(byCommand(operations, "compute snapshots delete").pathParameters).toEqual([
+      "serverId",
+      "snapname",
+    ]);
+  });
+
   test("two operations with one tool name are both skipped", () => {
     const document = loadFixture("surface");
     const regions = document.paths["/v1/regions"]?.get;

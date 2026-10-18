@@ -59,7 +59,8 @@ export async function walkPages(
   onPage?: (pageNumber: number, itemCount: number) => void,
 ): Promise<unknown[]> {
   const items: unknown[] = [];
-  const seenCursors = new Set<string>();
+  // A cursor or a page number asked for twice means the API ignores it, and the walk would never end.
+  const seenPages = new Set<string>();
   let pageInput = input;
   for (let pageNumber = 1; ; pageNumber += 1) {
     const body = await executeOperation(operation, prepare(pageInput), context, {
@@ -72,14 +73,15 @@ export async function walkPages(
     if (!page.next) {
       return items;
     }
-    if (page.next.input === "cursor") {
-      if (seenCursors.has(page.next.value)) {
-        throw new CliError("CLI_BAD_RESPONSE", "The API sent the same cursor twice", {
-          cursor: page.next.value,
-        });
-      }
-      seenCursors.add(page.next.value);
+    const key = `${page.next.input}:${page.next.value}`;
+    if (seenPages.has(key)) {
+      throw new CliError(
+        "CLI_BAD_RESPONSE",
+        `The API sent the same ${page.next.input === "cursor" ? "cursor" : "page"} twice`,
+        { [page.next.input]: page.next.value },
+      );
     }
+    seenPages.add(key);
     pageInput = { ...pageInput, [page.next.input]: page.next.value };
   }
 }

@@ -150,6 +150,21 @@ describe("pagination", () => {
     expect(api.requests).toHaveLength(2);
   });
 
+  test("an API that ignores the page number stops the walk", async () => {
+    api.handler = () =>
+      json(200, { data: [{ id: "n-1" }], pagination: { page: 1, totalPages: 5 } });
+    const list = operation("notifications list");
+    const error = (await walkPages(
+      list,
+      {},
+      (input) => prepareRequest(list, input, { apiUrl: api.apiUrl, validator }),
+      context(),
+    ).catch((failure: unknown) => failure)) as CliError;
+    expect(error.code).toBe("CLI_BAD_RESPONSE");
+    expect(error.details).toEqual({ page: 2 });
+    expect(api.requests).toHaveLength(2);
+  });
+
   test("an answer with no data list is CLI_BAD_RESPONSE", () => {
     expect(() => readPage(operation("compute list"), { servers: [] })).toThrow(CliError);
   });

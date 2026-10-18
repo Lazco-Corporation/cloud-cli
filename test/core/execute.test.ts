@@ -123,8 +123,8 @@ describe("task wait", () => {
     });
   });
 
-  test("the timeout is CLI_TIMEOUT with the taskId", async () => {
-    api.handler = taskServer({ taskId: "t-1" }, ["running"]);
+  test("the timeout is CLI_TIMEOUT with the taskId and the 202 body", async () => {
+    api.handler = taskServer({ taskId: "t-1", password: "only-sent-once" }, ["running"]);
     const { run, clock } = setup();
     const error = (await run(
       "compute create",
@@ -132,8 +132,52 @@ describe("task wait", () => {
       { wait: true, timeoutSeconds: 30 },
     ).catch((failure: unknown) => failure)) as CliError;
     expect(error.code).toBe("CLI_TIMEOUT");
-    expect(error.details).toEqual({ taskId: "t-1" });
+    expect(error.details).toEqual({
+      taskId: "t-1",
+      accepted: { taskId: "t-1", password: "only-sent-once" },
+    });
     expect(clock.sleeps.reduce((sum, value) => sum + value, 0)).toBe(30_000);
+  });
+
+  test("a failed task read keeps the 202 body in the error", async () => {
+    api.handler = (request: RecordedRequest) =>
+      request.path.startsWith("/v1/tasks/")
+        ? json(404, { error: "Task not found", code: "NOT_FOUND" })
+        : json(202, { taskId: "t-1", password: "only-sent-once" });
+    const { run } = setup();
+    const error = (await run("compute create", {
+      hostname: "web-1",
+      regionSlug: "txg1",
+      planSlug: "s1",
+    }).catch((failure: unknown) => failure)) as ApiError;
+    expect(error.status).toBe(404);
+    expect(error.toBody()).toMatchObject({
+      status: 404,
+      taskId: "t-1",
+      accepted: { taskId: "t-1", password: "only-sent-once" },
+    });
+  });
+
+  test("a task read that is not JSON keeps the 202 body in the error", async () => {
+    api.handler = (request: RecordedRequest) =>
+      request.path.startsWith("/v1/tasks/")
+        ? new Response("<html>bad gateway</html>", {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          })
+        : json(202, { taskId: "t-1", password: "only-sent-once" });
+    const { run } = setup();
+    const error = (await run("compute create", {
+      hostname: "web-1",
+      regionSlug: "txg1",
+      planSlug: "s1",
+    }).catch((failure: unknown) => failure)) as CliError;
+    expect(error).toBeInstanceOf(CliError);
+    expect(error.code).toBe("CLI_BAD_RESPONSE");
+    expect(error.details).toMatchObject({
+      taskId: "t-1",
+      accepted: { taskId: "t-1", password: "only-sent-once" },
+    });
   });
 
   test("without the wait the 202 body comes back at once", async () => {

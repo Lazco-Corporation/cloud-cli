@@ -79,6 +79,13 @@ describe("the tiers", () => {
     expect(session.client.getInstructions()).toContain("the token's scope is read");
   });
 
+  test("a scope this version does not know lists read tools only, even with --allow-writes", async () => {
+    state.scope = "billing_admin";
+    const session = await start(true);
+    expect(await toolNames(session)).toEqual(READ_TOOLS);
+    expect(session.client.getInstructions()).toContain("the token's scope is billing_admin");
+  });
+
   test("a spend operation never has a tool", async () => {
     const spec = loadFixture("surface");
     const create = spec.paths["/v1/servers"]?.post as { "x-lazco": Record<string, unknown> };

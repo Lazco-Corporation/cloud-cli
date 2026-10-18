@@ -1,4 +1,4 @@
-import { checkProfileName, type Profile, readConfig } from "../config/configFile";
+import { checkProfileName, type Profile, profileOf, readConfig } from "../config/configFile";
 import { CliError } from "../core/errors";
 import { DEFAULT_API_URL } from "../shell/apiUrl";
 import type { Keychain } from "./keychain";
@@ -46,7 +46,7 @@ export async function resolveSession(options: {
   if (name === undefined) {
     return { apiUrl: options.apiUrlFlag ?? DEFAULT_API_URL, source: { kind: "none" } };
   }
-  const profile = config.profiles[name];
+  const profile = profileOf(config, name);
   if (!profile) {
     throw new CliError(
       "CLI_INVALID_INPUT",

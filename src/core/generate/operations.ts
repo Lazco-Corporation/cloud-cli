@@ -232,15 +232,16 @@ function buildOperation(
       }
     }
   }
-  const missingPathParameter = [...path.matchAll(/\{([^}]+)\}/g)]
-    .map((match) => match[1] as string)
-    .find((name) => !pathParameters.includes(name));
+  const templateOrder = [...path.matchAll(/\{([^}]+)\}/g)].map((match) => match[1] as string);
+  const missingPathParameter = templateOrder.find((name) => !pathParameters.includes(name));
   if (missingPathParameter) {
     throw new SkipError(
       "unsupported-parameter",
       `the path parameter "${missingPathParameter}" is not described`,
     );
   }
+  // Positionals follow the path, whatever order the spec lists the parameters in.
+  pathParameters.sort((left, right) => templateOrder.indexOf(left) - templateOrder.indexOf(right));
   if (annotation.concurrency === "etag") {
     if (Object.hasOwn(properties, IF_MATCH_INPUT)) {
       throw new SkipError(

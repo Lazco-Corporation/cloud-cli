@@ -57,7 +57,10 @@ For a desktop client, install `lazco` globally first, with `scripts/install.sh` 
 
 The JSON writers use `jsonc-parser`, so the comments, the formatting and every other entry of the file stay as they were.
 The new file is written to a temporary name and renamed over the old one.
+When the file is a symlink, the link stays and its target gets the new content.
 A file that is not a JSON object is left alone and the command fails with `CLI_INVALID_INPUT`.
+
+`claude` and `codex` run through `cross-spawn`, so the `.cmd` file that an npm install makes on Windows runs with its arguments escaped for `cmd.exe`.
 
 `claude-code` and `codex` are never edited directly.
 Claude Code rewrites `~/.claude.json` while it runs, so a direct edit can be lost, and the Codex command keeps the comments of its TOML file.

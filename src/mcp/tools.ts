@@ -106,6 +106,9 @@ function describeTool(operation: Operation, taskTool: string | undefined): strin
   return lines.filter(Boolean).join("\n\n");
 }
 
+/** The `whoami` scopes that may write: an API token's `read_write`, and a product session's `full`. */
+const WRITE_SCOPES: ReadonlySet<string> = new Set(["read_write", "full"]);
+
 /**
  * The tools of a session by the tiers of `cli-mcp`: `read` always, `write`
  * and `destructive` with `--allow-writes` on a token that can write, a
@@ -116,7 +119,8 @@ export function selectTools(
   operations: readonly Operation[],
   options: { allowWrites: boolean; facts: SessionFacts },
 ): ToolSet {
-  const readOnlyScope = options.facts.scope === "read";
+  // An allow-list, so a scope this version does not know offers no write tool.
+  const readOnlyScope = !WRITE_SCOPES.has(options.facts.scope);
   const writes = options.allowWrites && !readOnlyScope;
   const hidden = new Set<string>();
   const taskTool = operations.find(
@@ -153,7 +157,7 @@ export function selectTools(
     tools,
     hiddenFeatures: [...hidden].sort(),
     readOnlyReason: readOnlyScope
-      ? "the token's scope is read, so no write tool is offered, even with --allow-writes"
+      ? `the token's scope is ${options.facts.scope}, so no write tool is offered, even with --allow-writes`
       : options.allowWrites
         ? null
         : "it was started without --allow-writes. Start lazco mcp with --allow-writes to add the write tools",

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { packageSpec } from "../../src/mcp/install";
 import { cliEnv, FAKE_TOKEN, makeHome, runInProcess } from "../helpers/cli";
@@ -117,6 +117,23 @@ describe("lazco mcp install", () => {
     expect(text).toContain(`"command": "${join(bin, "lazco")}"`);
     expect(text).not.toContain("/old/lazco");
     expect(text).toContain('"--allow-writes"');
+  });
+
+  test("a config file that is a symlink stays a symlink, and its target gets the entry", async () => {
+    const lazco = await fakeProgram("lazco");
+    const dotfiles = join(home.home, "dotfiles");
+    await mkdir(dotfiles, { recursive: true });
+    await mkdir(join(home.home, ".cursor"), { recursive: true });
+    const real = join(dotfiles, "cursor-mcp.json");
+    await writeFile(real, '{ "mcpServers": { "other": { "command": "/bin/other" } } }\n');
+    const link = join(home.home, ".cursor", "mcp.json");
+    await symlink(real, link);
+    const run = await install(["--client", "cursor"], { platform: "linux" });
+    expect(run.code).toBe(0);
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+    const written = await readJson(real);
+    expect(written.mcpServers?.lazco).toEqual({ command: lazco, args: ["mcp"] });
+    expect(written.mcpServers?.other).toEqual({ command: "/bin/other" });
   });
 
   test("the entry holds no credential, and --profile and --api-url go into its arguments", async () => {

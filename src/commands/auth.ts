@@ -2,6 +2,7 @@ import {
   checkProfileName,
   DEFAULT_PROFILE,
   type Profile,
+  profileOf,
   readConfig,
   writeConfig,
 } from "../config/configFile";
@@ -90,7 +91,7 @@ const login: HandwrittenCommand = {
     checkTokenFormat(token);
 
     const config = await readConfig(context.configPath);
-    const previous = config.profiles[name];
+    const previous = profileOf(config, name);
     const apiUrl = context.flags.apiUrl ?? previous?.apiUrl ?? DEFAULT_API_URL;
     const whoami = requireJson(
       await context.client(apiUrl, token).call({ method: "GET", path: "/whoami" }),
@@ -189,7 +190,7 @@ const logout: HandwrittenCommand = {
         "No profile is signed in, so there is nothing to forget",
       );
     }
-    const profile = config.profiles[name];
+    const profile = profileOf(config, name);
     if (!profile) {
       throw new CliError(
         "CLI_INVALID_INPUT",
