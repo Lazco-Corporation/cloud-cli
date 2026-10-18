@@ -1,4 +1,5 @@
 import type Ajv2020 from "ajv/dist/2020.js";
+import type { PathEnvironment } from "../config/paths";
 import type { OperationKind } from "../core/generate/annotation";
 import type { ApiClient } from "../core/request/client";
 import type { Clock } from "../core/request/clock";
@@ -15,6 +16,8 @@ export type HandwrittenContext = {
   configPath: string;
   /** The `lazco` cache root. */
   cacheDirectory: string;
+  /** The environment, platform and home directory that paths are made from. */
+  paths: PathEnvironment;
   keychain: Keychain;
   version: string;
   clock: Clock;

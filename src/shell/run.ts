@@ -82,6 +82,7 @@ class Shell {
   private readonly keychain: Keychain;
   private readonly configPath: string;
   private readonly cacheDirectory: string;
+  private readonly paths: PathEnvironment;
   private sessionPromise: Promise<Session> | undefined;
   private credentialPromise: Promise<string> | undefined;
   private specSourcePromise: Promise<SpecSource> | undefined;
@@ -98,9 +99,9 @@ class Shell {
     this.fetchImplementation = options.fetch;
     this.limiter = new RateLimiter(this.clock);
     this.keychain = options.keychain ?? osKeychain();
-    const paths = options.paths ?? currentPathEnvironment();
-    this.cacheDirectory = cacheRoot(paths);
-    this.configPath = configFilePath(paths);
+    this.paths = options.paths ?? currentPathEnvironment();
+    this.cacheDirectory = cacheRoot(this.paths);
+    this.configPath = configFilePath(this.paths);
     this.ajv = createAjv();
     this.validator = new InputValidator(this.ajv);
     this.handwritten = (options.handwritten ?? HANDWRITTEN_COMMANDS).map(handwrittenEntry);
@@ -166,6 +167,7 @@ class Shell {
       flags: this.flags,
       configPath: this.configPath,
       cacheDirectory: this.cacheDirectory,
+      paths: this.paths,
       keychain: this.keychain,
       version: VERSION,
       clock: this.clock,

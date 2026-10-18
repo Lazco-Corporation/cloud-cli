@@ -1,6 +1,9 @@
 import type { Readable, Writable } from "node:stream";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { readConfig } from "../config/configFile";
+import { CliError } from "../core/errors";
 import { SpecSource } from "../core/spec/loader";
+import { installClient, MCP_CLIENTS, type McpClient, resolveLauncher } from "../mcp/install";
 import { McpSession } from "../mcp/server";
 import { writeNotice } from "../shell/output";
 import type { HandwrittenCommand } from "./types";
@@ -65,4 +68,59 @@ const serve: HandwrittenCommand = {
   },
 };
 
-export const MCP_COMMANDS: readonly HandwrittenCommand[] = [serve];
+const install: HandwrittenCommand = {
+  command: ["mcp", "install"],
+  summary: "Add lazco to an MCP client's configuration",
+  description:
+    "Adds or replaces the server entry lazco in the user-level configuration of one client. The entry holds the command and its arguments only, never a credential: the server reads the credential of its profile when the client starts it. --profile, --api-url and --allow-writes are written into the entry's arguments. --dry-run prints the entry and the file and changes nothing.",
+  kind: "write",
+  positionals: [],
+  inputSchema: {
+    type: "object",
+    required: ["client"],
+    properties: {
+      client: { type: "string", enum: [...MCP_CLIENTS], description: "The MCP client" },
+      allowWrites: {
+        type: "boolean",
+        description: "Start the server with --allow-writes",
+      },
+    },
+    additionalProperties: false,
+  },
+  async run(input, context) {
+    const serverArgs: string[] = [];
+    if (context.flags.profile !== undefined) {
+      const config = await readConfig(context.configPath);
+      if (!Object.hasOwn(config.profiles, context.flags.profile)) {
+        throw new CliError(
+          "CLI_INVALID_INPUT",
+          `No profile is named ${context.flags.profile}: sign in first with lazco auth login --profile ${context.flags.profile}`,
+          [{ field: "profile", message: "names no profile" }],
+        );
+      }
+      serverArgs.push("--profile", context.flags.profile);
+    }
+    if (context.flags.apiUrl !== undefined) {
+      serverArgs.push("--api-url", context.flags.apiUrl);
+    }
+    if (input.allowWrites === true) {
+      serverArgs.push("--allow-writes");
+    }
+    const launcher = await resolveLauncher({
+      paths: context.paths,
+      execPath: process.execPath,
+      version: context.version,
+      serverArgs,
+    });
+    return {
+      record: await installClient({
+        client: input.client as McpClient,
+        paths: context.paths,
+        launcher,
+        dryRun: context.flags.dryRun,
+      }),
+    };
+  },
+};
+
+export const MCP_COMMANDS: readonly HandwrittenCommand[] = [serve, install];

@@ -119,6 +119,7 @@ export async function runInProcess(
     handwritten?: readonly HandwrittenCommand[];
     keychain?: Keychain;
     stdin?: string;
+    platform?: NodeJS.Platform;
   },
 ): Promise<CliRun> {
   let stdout = "";
@@ -134,7 +135,11 @@ export async function runInProcess(
   const code = await runCli(args, io, {
     handwritten: options.handwritten,
     keychain: options.keychain ?? memoryKeychain(),
-    paths: { env: options.env, platform: process.platform, home: options.env.HOME as string },
+    paths: {
+      env: options.env,
+      platform: options.platform ?? process.platform,
+      home: options.env.HOME as string,
+    },
   });
   return { code, stdout, stderr };
 }
