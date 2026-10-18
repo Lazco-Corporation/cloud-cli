@@ -1,0 +1,330 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Fixture: every supported x-lazco case", "version": "1.0.0" },
+  "paths": {
+    "/v1/servers": {
+      "get": {
+        "operationId": "compute.servers.list",
+        "summary": "List servers",
+        "description": "Every server of the organization.",
+        "x-lazco": {
+          "cli": "compute list",
+          "mcp": { "name": "compute_list_servers" },
+          "kind": "read",
+          "paginate": "cursor"
+        },
+        "parameters": [
+          { "name": "region", "in": "query", "schema": { "type": "string" } },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "number", "minimum": 1, "maximum": 100 }
+          },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } }
+        ]
+      },
+      "post": {
+        "operationId": "compute.servers.create",
+        "summary": "Create a server",
+        "x-lazco": { "cli": "compute create", "mcp": false, "kind": "spend", "async": "task" },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["hostname", "regionSlug", "planSlug"],
+                "properties": {
+                  "hostname": { "type": "string", "minLength": 1 },
+                  "regionSlug": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+                  "planSlug": { "type": "string" },
+                  "sshKeys": { "type": "array", "items": { "type": "string" } },
+                  "autoBackup": { "type": "boolean" },
+                  "diskGiB": { "type": "integer", "minimum": 10 },
+                  "cloudInit": {
+                    "type": "object",
+                    "properties": { "userData": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}": {
+      "get": {
+        "operationId": "compute.servers.get",
+        "summary": "Get a server",
+        "x-lazco": {
+          "cli": "compute get",
+          "mcp": { "name": "compute_get_server" },
+          "kind": "read"
+        },
+        "parameters": [
+          { "name": "serverId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ]
+      },
+      "delete": {
+        "operationId": "compute.servers.delete",
+        "summary": "Delete a server",
+        "x-lazco": {
+          "cli": "compute delete",
+          "mcp": { "name": "compute_delete_server" },
+          "kind": "destructive",
+          "async": "task",
+          "confirm": "confirmHostname"
+        },
+        "parameters": [
+          { "name": "serverId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["confirmHostname"],
+                "properties": { "confirmHostname": { "type": "string" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}/actions": {
+      "post": {
+        "operationId": "compute.power.set",
+        "summary": "Start, stop or reboot a server",
+        "x-lazco": {
+          "cli": "compute power set",
+          "mcp": { "name": "compute_set_power" },
+          "kind": "write"
+        },
+        "parameters": [
+          { "name": "serverId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["action"],
+                "properties": { "action": { "enum": ["start", "stop", "reboot"] } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}/snapshots/{snapname}": {
+      "delete": {
+        "operationId": "compute.snapshots.delete",
+        "summary": "Delete a snapshot",
+        "x-lazco": {
+          "cli": "compute snapshots delete",
+          "mcp": { "name": "compute_delete_snapshot" },
+          "kind": "destructive"
+        },
+        "parameters": [
+          { "name": "serverId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "snapname", "in": "path", "required": true, "schema": { "type": "string" } }
+        ]
+      }
+    },
+    "/v1/notifications": {
+      "get": {
+        "operationId": "notifications.list",
+        "summary": "List notifications",
+        "x-lazco": {
+          "cli": "notifications list",
+          "mcp": { "name": "notifications_list" },
+          "kind": "read",
+          "paginate": "page"
+        },
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ]
+      }
+    },
+    "/v1/dns/zones/{zoneId}/rrsets": {
+      "get": {
+        "operationId": "dns.records.list",
+        "summary": "List the records of a zone",
+        "x-lazco": {
+          "cli": "dns records list",
+          "mcp": { "name": "dns_list_records" },
+          "kind": "read",
+          "feature": "dns"
+        },
+        "parameters": [
+          { "name": "zoneId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ]
+      },
+      "patch": {
+        "operationId": "dns.records.set",
+        "summary": "Change the records of a zone",
+        "x-lazco": {
+          "cli": "dns records set",
+          "mcp": { "name": "dns_set_records" },
+          "kind": "write",
+          "feature": "dns",
+          "concurrency": "etag"
+        },
+        "parameters": [
+          { "name": "zoneId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["rrsets"],
+                "additionalProperties": true,
+                "properties": { "rrsets": { "type": "array", "items": {} } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/hidden": {
+      "get": {
+        "operationId": "hidden.get",
+        "summary": "Not exposed",
+        "x-lazco": { "expose": false }
+      }
+    },
+    "/v1/regions": {
+      "get": {
+        "operationId": "regions.list",
+        "summary": "List regions",
+        "x-lazco": {
+          "cli": "regions list",
+          "mcp": { "name": "regions_list" },
+          "kind": "read",
+          "quote": "regions.quote",
+          "laterKey": { "anything": true }
+        }
+      }
+    },
+    "/v1/ssh-keys": {
+      "post": {
+        "operationId": "sshkeys.create",
+        "summary": "Add an SSH key",
+        "x-lazco": {
+          "cli": "ssh-keys create",
+          "mcp": { "name": "sshkeys_create" },
+          "kind": "write"
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/SshKeyCreate" } }
+          }
+        }
+      }
+    },
+    "/v1/firewalls/{firewallId}/rules": {
+      "put": {
+        "operationId": "firewall.rules.set",
+        "summary": "Replace the rules of a firewall",
+        "x-lazco": {
+          "cli": "firewall rules set",
+          "mcp": { "name": "firewall_set_rules" },
+          "kind": "write"
+        },
+        "parameters": [
+          { "name": "firewallId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["rules"],
+                "properties": {
+                  "rules": { "type": "array", "items": { "$ref": "#/components/schemas/RuleNode" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}": {
+      "put": {
+        "operationId": "projects.update",
+        "summary": "Rename a project",
+        "x-lazco": {
+          "cli": "projects update",
+          "mcp": { "name": "projects_update" },
+          "kind": "write"
+        },
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": { "projectId": { "type": "string" }, "name": { "type": "string" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tags/bulk": {
+      "post": {
+        "operationId": "tags.bulk.create",
+        "summary": "Create tags",
+        "x-lazco": { "cli": "tags bulk create", "mcp": false, "kind": "write" },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "type": "array", "items": { "type": "string" } } }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{taskId}": {
+      "get": {
+        "operationId": "tasks.get",
+        "summary": "Read a task",
+        "x-lazco": { "cli": "tasks get", "mcp": { "name": "tasks_get" }, "kind": "read" },
+        "parameters": [
+          { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SshKeyCreate": {
+        "type": "object",
+        "required": ["name", "publicKey"],
+        "properties": {
+          "name": { "type": "string" },
+          "publicKey": { "$ref": "#/components/schemas/PublicKey" }
+        }
+      },
+      "PublicKey": { "type": "string", "minLength": 16 },
+      "RuleNode": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "action": { "enum": ["allow", "deny"] },
+          "children": { "type": "array", "items": { "$ref": "#/components/schemas/RuleNode" } }
+        }
+      }
+    }
+  }
+}
