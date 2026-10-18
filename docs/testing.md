@@ -5,6 +5,7 @@
 | Unit | `test/`, except `test/contract/` | `bun run test:unit`, the pre-push hook, `.github/workflows/ci.yml` | Nothing. No network but `127.0.0.1` |
 | Contract | `test/contract/` | `bun run test:contract`, the `contract` job of `.github/workflows/ci.yml` | The two staging tokens |
 | Keychain | `test/keychain/proof.mjs` | `.github/workflows/keychain.yml` on the five targets | A runner of each OS |
+| Windows `.cmd` shims of `claude` and `codex` | `test/keychain/cmd-shim.mjs` | `.github/workflows/keychain.yml` on `windows-2025` | A Windows runner |
 | MCP evaluation | `eval/mcp/` | By hand, never in CI | `pi`, a model, the staging profile |
 
 ## Unit tests

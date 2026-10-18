@@ -116,3 +116,12 @@ jobs:
           PROOF_PROFILE="keychain-proof-binary" prove "$binary" || failed=1
           PROOF_PROFILE="keychain-proof-npm" prove lazco || failed=1
           exit "$failed"
+      - name: Prove lazco mcp install through the Windows .cmd shims
+        if: runner.os == 'Windows'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          failed=0
+          node test/keychain/cmd-shim.mjs "build/binaries/$TARGET/lazco.exe" || failed=1
+          node test/keychain/cmd-shim.mjs lazco || failed=1
+          exit "$failed"

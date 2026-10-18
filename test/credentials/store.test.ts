@@ -29,6 +29,17 @@ describe("the credential store", () => {
     expect(result.keychainError).toContain("did not return");
   });
 
+  test("a keychain that keeps a different value is emptied before the file store takes over", async () => {
+    const memory = memoryKeychain();
+    const mangling = {
+      ...memory,
+      get: async (account: string) => ((await memory.get(account)) ? "something else" : null),
+    };
+    const result = await storeCredential(mangling, "default", FAKE_TOKEN);
+    expect(result.credential.store).toBe("file");
+    expect(memory.entries.has("default")).toBe(false);
+  });
+
   test("a missing keychain entry is CLI_NOT_LOGGED_IN naming the profile", async () => {
     const error = await loadCredential(memoryKeychain(), "staging", { store: "keychain" }).catch(
       (thrown: unknown) => thrown,

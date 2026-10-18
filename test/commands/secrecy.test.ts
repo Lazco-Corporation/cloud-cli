@@ -11,7 +11,16 @@ const KEYCHAIN_TOKEN = `lz_live_${"0".repeat(48)}beefbeef12345678`;
 const FILE_TOKEN = `lz_live_${"0".repeat(48)}f11ef11e87654321`;
 const LOGIN_TOKEN = `lz_live_${"0".repeat(48)}10910910abcdef01`;
 const FILE_LOGIN_TOKEN = `lz_live_${"0".repeat(48)}f10f10f1fedcba98`;
-const TOKENS = [FAKE_TOKEN, KEYCHAIN_TOKEN, FILE_TOKEN, LOGIN_TOKEN, FILE_LOGIN_TOKEN];
+/** A token that fails the format check, which must not leak through its error either. */
+const MALFORMED_TOKEN = `${LOGIN_TOKEN.slice(0, -1)}Z`;
+const TOKENS = [
+  FAKE_TOKEN,
+  KEYCHAIN_TOKEN,
+  FILE_TOKEN,
+  LOGIN_TOKEN,
+  FILE_LOGIN_TOKEN,
+  MALFORMED_TOKEN,
+];
 
 /** Every command of the `surface` fixture, and the error paths of the shell. */
 const COMMANDS: string[][] = [
@@ -187,7 +196,7 @@ describe("no credential is ever shown", () => {
     );
     await run(["--profile", "file-login", "auth", "status"]);
     await run(["--api-url", echoApi.apiUrl, "auth", "login", "--with-token", "--profile", "x"], {
-      stdin: `${LOGIN_TOKEN.slice(0, -1)}Z`,
+      stdin: MALFORMED_TOKEN,
     });
     await run(["profile", "use", "login"]);
     await run(["profile", "list"]);

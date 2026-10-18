@@ -23,6 +23,9 @@ export async function storeCredential(
     }
     return { credential: { store: "keychain" } };
   } catch (error) {
+    // The config now names the file store, so logout never looks in the
+    // keychain again. Take out whatever the keychain may still hold.
+    await keychain.delete(profileName).catch(() => undefined);
     return { credential: { store: "file", token }, keychainError: reason(error) };
   }
 }

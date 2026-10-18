@@ -178,8 +178,10 @@ jobs:
           retention-days: 7
 
       # Also after `already-published`, so a rerun of a tag whose publish worked but whose
-      # release failed still gets its release. Assets already there are kept as they are,
-      # so a rerun never swaps a binary that someone may have checked against SHA256SUMS.
+      # release failed still gets its release. `gh release create` uploads to a draft
+      # first, so a run cancelled during the upload leaves a draft: it is deleted and made
+      # again. A published release is never changed, because a rebuilt archive need not
+      # match the SHA256SUMS that people may already have checked.
       - name: Create the GitHub release
         if: >-
           github.event_name == 'push' &&
@@ -191,18 +193,20 @@ jobs:
         run: |
           set -euo pipefail
           assets=(build/binaries/*.tar.gz build/binaries/*.zip build/binaries/SHA256SUMS)
-          if gh release view "$TAG" > /dev/null 2>&1; then
-            present="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
-            missing=()
-            for asset in "${assets[@]}"; do
-              if ! grep -qxF "$(basename "$asset")" <<< "$present"; then
-                missing+=("$asset")
-              fi
-            done
-            if [ "${#missing[@]}" -gt 0 ]; then
-              gh release upload "$TAG" "${missing[@]}"
+          if draft="$(gh release view "$TAG" --json isDraft --jq '.isDraft' 2> /dev/null)"; then
+            if [ "$draft" = "true" ]; then
+              gh release delete "$TAG" --yes
+            else
+              present="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+              for asset in "${assets[@]}"; do
+                if ! grep -qxF "$(basename "$asset")" <<< "$present"; then
+                  echo "::error::the published release $TAG lacks $(basename "$asset"). Fix it by hand: a rebuilt archive may not match its SHA256SUMS."
+                  exit 1
+                fi
+              done
+              echo "the release $TAG is already published with every asset"
+              exit 0
             fi
-            exit 0
           fi
           args=(--notes-file "$RUNNER_TEMP/release-notes.md" --generate-notes --title "$TAG")
           if [ "$DIST_TAG" = "next" ]; then

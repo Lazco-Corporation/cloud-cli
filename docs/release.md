@@ -31,7 +31,7 @@ Never edit the version in `package.json` by hand.
 | Job | Does |
 |---|---|
 | `guard` | `ci-actions/require-tag-on-main@v1`: refuses a tag whose commit `main` does not hold. A manual run with `dry-run` false is refused here |
-| `release` | Reads the notes from `CHANGELOG.md`, runs the checks, builds the npm package and the five binaries, reads `NPM_TOKEN` from Infisical `lazco-cloud-cli` `prod` `/ci`, publishes with `ci-actions/npm-publish@v1` with provenance, and creates the GitHub release with the archives and `SHA256SUMS`. A rerun of a tag that npm already has still creates the release, or adds only the assets it lacks |
+| `release` | Reads the notes from `CHANGELOG.md`, runs the checks, builds the npm package and the five binaries, reads `NPM_TOKEN` from Infisical `lazco-cloud-cli` `prod` `/ci`, publishes with `ci-actions/npm-publish@v1` with provenance, and creates the GitHub release with the archives and `SHA256SUMS`. A rerun of a tag that npm already has still creates the release, and replaces a draft that a cancelled run left. A published release is never changed |
 
 A version with a `-` goes to the `next` dist-tag and is marked a prerelease. Every other version goes to `latest`.
 Every job runs on `ubuntu-latest`.
