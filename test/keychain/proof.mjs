@@ -124,6 +124,9 @@ $all | Where-Object { $_ -like '*${SERVICE}*' } | ForEach-Object { $_ }
     console.log(
       `${result.stderr.trim()}, entries of ${SERVICE}: ${result.stdout.trim() || "none"}`,
     );
+    const listed = await run("cmdkey", ["/list"]);
+    const cmdkeyLines = listed.stdout.split(/\r?\n/).filter((line) => line.includes(SERVICE));
+    console.log(`cmdkey /list entries of ${SERVICE}: ${cmdkeyLines.join(" | ") || "none"}`);
     return result.stdout.split(/\r?\n/).some((line) => line.includes(profile));
   }
   return fail(`no OS tool is known for ${process.platform}`);

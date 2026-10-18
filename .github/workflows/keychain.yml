@@ -110,6 +110,8 @@ jobs:
           binary="build/binaries/$TARGET/lazco"
           if [[ "$TARGET" == windows-* ]]; then binary="$binary.exe"; fi
           chmod +x "$binary"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then codesign -dv "$binary" 2>&1 || true; fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then cmdkey /list || true; fi
           "$binary" --version
           prove() {
             if [[ "$RUNNER_OS" == "Linux" ]]; then
@@ -121,5 +123,8 @@ jobs:
               node test/keychain/proof.mjs "$@"
             fi
           }
-          PROOF_PROFILE="keychain-proof-binary" prove "$binary"
-          PROOF_PROFILE="keychain-proof-npm" prove lazco
+          # Both legs run, so one failure does not hide the other's result.
+          failed=0
+          PROOF_PROFILE="keychain-proof-binary" prove "$binary" || failed=1
+          PROOF_PROFILE="keychain-proof-npm" prove lazco || failed=1
+          exit "$failed"
