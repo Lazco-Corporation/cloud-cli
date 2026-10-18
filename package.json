@@ -43,6 +43,8 @@
     "release": "bash scripts/release.sh"
   },
   "dependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "citty": "^0.2.2"
   },
   "devDependencies": {

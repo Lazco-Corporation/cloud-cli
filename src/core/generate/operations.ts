@@ -1,0 +1,399 @@
+import type Ajv2020 from "ajv/dist/2020";
+import {
+  HTTP_METHODS,
+  type HttpMethod,
+  type JsonSchema,
+  type OpenApiDocument,
+  type OpenApiOperation,
+  type OpenApiParameter,
+} from "../spec/types";
+import {
+  type Annotation,
+  createAnnotationChecker,
+  KNOWN_UPLOADERS,
+  type OperationKind,
+} from "./annotation";
+import { lookupPointer, resolveReferences, UnresolvableReferenceError } from "./refs";
+
+/** First command words that the hand-written commands own. */
+export const RESERVED_FIRST_WORDS: ReadonlySet<string> = new Set(["auth", "profile", "mcp"]);
+
+/** The extra input of an operation with `concurrency: etag`. */
+export const IF_MATCH_INPUT = "ifMatch";
+/** The input that holds the whole body when it cannot be merged. */
+export const BODY_INPUT = "body";
+
+/**
+ * How the input object maps onto the body. `merged`: every input property that
+ * is not a parameter is a body property. `wrapped`: the input property `body`
+ * is the whole body. `none`: the operation takes no body.
+ */
+export type BodyMapping =
+  | { mode: "none" }
+  | { mode: "merged"; required: boolean }
+  | { mode: "wrapped"; required: boolean };
+
+export type Operation = {
+  operationId: string;
+  method: HttpMethod;
+  /** The path template of the spec, such as `/v1/servers/{serverId}`. */
+  path: string;
+  summary: string;
+  description: string;
+  annotation: Annotation;
+  kind: OperationKind;
+  command: readonly string[];
+  toolName: string | null;
+  feature: string | null;
+  /** The JSON Schema of the one input object, self-contained. */
+  inputSchema: JsonSchema;
+  pathParameters: readonly string[];
+  queryParameters: readonly string[];
+  body: BodyMapping;
+};
+
+export type SkipReason =
+  | "invalid-annotation"
+  | "no-uploader"
+  | "etag-without-get"
+  | "reserved-word"
+  | "command-is-group"
+  | "duplicate-command"
+  | "duplicate-tool"
+  | "unresolvable-ref"
+  | "unsupported-body"
+  | "unsupported-parameter";
+
+export type SkippedOperation = {
+  method: HttpMethod;
+  path: string;
+  operationId: string | null;
+  reason: SkipReason;
+  message: string;
+};
+
+export type GeneratedSurface = {
+  operations: readonly Operation[];
+  skipped: readonly SkippedOperation[];
+};
+
+class SkipError extends Error {
+  readonly reason: SkipReason;
+
+  constructor(reason: SkipReason, message: string) {
+    super(message);
+    this.reason = reason;
+  }
+}
+
+/** The one-line warning for a skipped operation. */
+export function describeSkip(skip: SkippedOperation): string {
+  const name = skip.operationId ? ` (${skip.operationId})` : "";
+  return `skipped ${skip.method.toUpperCase()} ${skip.path}${name}: ${skip.message}`;
+}
+
+/** Every exposed operation as a command and at most one tool, and every operation skipped. */
+export function generateSurface(document: OpenApiDocument, ajv: Ajv2020): GeneratedSurface {
+  const checkAnnotation = createAnnotationChecker(ajv);
+  const candidates: Operation[] = [];
+  const skipped: SkippedOperation[] = [];
+  const skip = (operation: Operation, reason: SkipReason, message: string): void => {
+    skipped.push({
+      method: operation.method,
+      path: operation.path,
+      operationId: operation.operationId,
+      reason,
+      message,
+    });
+  };
+
+  for (const [path, pathItem] of Object.entries(document.paths)) {
+    for (const method of HTTP_METHODS) {
+      const source = pathItem[method];
+      if (!source) {
+        continue;
+      }
+      const check = checkAnnotation(source["x-lazco"]);
+      if (!check.exposed) {
+        continue;
+      }
+      try {
+        if ("problem" in check) {
+          throw new SkipError("invalid-annotation", check.problem);
+        }
+        candidates.push(
+          buildOperation(document, path, method, source, check.annotation, pathItem.parameters),
+        );
+      } catch (error) {
+        if (!(error instanceof SkipError)) {
+          throw error;
+        }
+        skipped.push({
+          method,
+          path,
+          operationId: source.operationId ?? null,
+          reason: error.reason,
+          message: error.message,
+        });
+      }
+    }
+  }
+
+  const byCommand = groupBy(candidates, (operation) => operation.command.join(" "));
+  const byTool = groupBy(
+    candidates.filter((operation) => operation.toolName !== null),
+    (operation) => operation.toolName as string,
+  );
+  const commandKeys = [...byCommand.keys()];
+  const operations: Operation[] = [];
+  for (const operation of candidates) {
+    const command = operation.command.join(" ");
+    if ((byCommand.get(command)?.length ?? 0) > 1) {
+      skip(operation, "duplicate-command", `another operation also uses the command "${command}"`);
+    } else if (operation.toolName && (byTool.get(operation.toolName)?.length ?? 0) > 1) {
+      skip(
+        operation,
+        "duplicate-tool",
+        `another operation also uses the tool "${operation.toolName}"`,
+      );
+    } else if (commandKeys.some((other) => other.startsWith(`${command} `))) {
+      skip(operation, "command-is-group", `"${command}" is also a group of other commands`);
+    } else {
+      operations.push(operation);
+    }
+  }
+  return { operations, skipped };
+}
+
+function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const name = key(item);
+    groups.set(name, [...(groups.get(name) ?? []), item]);
+  }
+  return groups;
+}
+
+function buildOperation(
+  document: OpenApiDocument,
+  path: string,
+  method: HttpMethod,
+  source: OpenApiOperation,
+  annotation: Annotation,
+  pathLevelParameters: OpenApiOperation["parameters"],
+): Operation {
+  const command = annotation.cli.split(" ");
+  if (RESERVED_FIRST_WORDS.has(command[0] as string)) {
+    throw new SkipError(
+      "reserved-word",
+      `the command word "${command[0]}" belongs to lazco itself`,
+    );
+  }
+  if (annotation.upload !== undefined && !KNOWN_UPLOADERS.has(annotation.upload)) {
+    throw new SkipError("no-uploader", `this version has no uploader "${annotation.upload}"`);
+  }
+  if (annotation.concurrency === "etag" && !document.paths[path]?.get) {
+    throw new SkipError("etag-without-get", "concurrency etag needs a GET at the same path");
+  }
+
+  const parameters = collectParameters(document, pathLevelParameters, source.parameters);
+  const properties: Record<string, JsonSchema> = {};
+  const required: string[] = [];
+  const pathParameters: string[] = [];
+  const queryParameters: string[] = [];
+  for (const parameter of parameters) {
+    if (parameter.in === "header" || parameter.in === "cookie") {
+      if (parameter.required) {
+        throw new SkipError(
+          "unsupported-parameter",
+          `the ${parameter.in} parameter "${parameter.name}" is required`,
+        );
+      }
+      continue;
+    }
+    if (Object.hasOwn(properties, parameter.name)) {
+      throw new SkipError(
+        "unsupported-parameter",
+        `the parameter "${parameter.name}" is listed twice`,
+      );
+    }
+    const schema: JsonSchema = { ...(parameter.schema ?? {}) };
+    if (parameter.description && schema.description === undefined) {
+      schema.description = parameter.description;
+    }
+    properties[parameter.name] = schema;
+    if (parameter.in === "path") {
+      pathParameters.push(parameter.name);
+      required.push(parameter.name);
+    } else {
+      queryParameters.push(parameter.name);
+      if (parameter.required) {
+        required.push(parameter.name);
+      }
+    }
+  }
+  const missingPathParameter = [...path.matchAll(/\{([^}]+)\}/g)]
+    .map((match) => match[1] as string)
+    .find((name) => !pathParameters.includes(name));
+  if (missingPathParameter) {
+    throw new SkipError(
+      "unsupported-parameter",
+      `the path parameter "${missingPathParameter}" is not described`,
+    );
+  }
+  if (annotation.concurrency === "etag") {
+    if (Object.hasOwn(properties, IF_MATCH_INPUT)) {
+      throw new SkipError(
+        "unsupported-parameter",
+        `the parameter "${IF_MATCH_INPUT}" clashes with the ETag input`,
+      );
+    }
+    properties[IF_MATCH_INPUT] = {
+      type: "string",
+      minLength: 1,
+      description:
+        "The ETag of the version this change is based on, sent as If-Match. Without it, the current ETag is read first.",
+    };
+  }
+
+  const body = mergeBody(document, source, properties, required);
+  let resolved: ReturnType<typeof resolveReferences>;
+  try {
+    resolved = resolveReferences(document, {
+      type: "object",
+      properties,
+      required,
+      additionalProperties: body.additionalProperties,
+    });
+  } catch (error) {
+    if (error instanceof UnresolvableReferenceError) {
+      throw new SkipError("unresolvable-ref", error.message);
+    }
+    throw error;
+  }
+  const inputSchema: JsonSchema = resolved.schema;
+  if (Object.keys(resolved.definitions).length > 0) {
+    inputSchema.$defs = resolved.definitions;
+  }
+
+  return {
+    operationId: source.operationId ?? `${method} ${path}`,
+    method,
+    path,
+    summary: source.summary ?? "",
+    description: source.description ?? "",
+    annotation,
+    kind: annotation.kind,
+    command,
+    toolName: annotation.mcp === false ? null : annotation.mcp.name,
+    feature: annotation.feature ?? null,
+    inputSchema,
+    pathParameters,
+    queryParameters,
+    body: body.mapping,
+  };
+}
+
+function collectParameters(
+  document: OpenApiDocument,
+  ...lists: Array<OpenApiOperation["parameters"]>
+): OpenApiParameter[] {
+  const byKey = new Map<string, OpenApiParameter>();
+  for (const list of lists) {
+    for (const entry of list ?? []) {
+      let parameter: OpenApiParameter;
+      try {
+        parameter = (
+          "$ref" in entry ? lookupPointer(document, entry.$ref) : entry
+        ) as OpenApiParameter;
+      } catch (error) {
+        if (error instanceof UnresolvableReferenceError) {
+          throw new SkipError("unresolvable-ref", error.message);
+        }
+        throw error;
+      }
+      byKey.set(`${parameter.in}:${parameter.name}`, parameter);
+    }
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * Adds the body to the input properties: its top-level properties when it is
+ * an object whose names clash with no parameter, else the whole body as `body`.
+ */
+function mergeBody(
+  document: OpenApiDocument,
+  source: OpenApiOperation,
+  properties: Record<string, JsonSchema>,
+  required: string[],
+): { mapping: BodyMapping; additionalProperties: unknown } {
+  const requestBody = source.requestBody;
+  if (!requestBody?.content) {
+    return { mapping: { mode: "none" }, additionalProperties: false };
+  }
+  const json = requestBody.content["application/json"];
+  if (!json) {
+    throw new SkipError("unsupported-body", "the request body has no application/json form");
+  }
+  const bodyRequired = requestBody.required === true;
+  const raw = json.schema ?? {};
+  let schema: JsonSchema;
+  try {
+    schema = "$ref" in raw && typeof raw.$ref === "string" ? dereferenceTop(document, raw) : raw;
+  } catch (error) {
+    if (error instanceof UnresolvableReferenceError) {
+      throw new SkipError("unresolvable-ref", error.message);
+    }
+    throw error;
+  }
+  const bodyProperties = schema.properties as Record<string, JsonSchema> | undefined;
+  const isObject =
+    (schema.type === "object" || (schema.type === undefined && bodyProperties !== undefined)) &&
+    schema.oneOf === undefined &&
+    schema.anyOf === undefined &&
+    schema.allOf === undefined;
+  const clashes =
+    isObject && Object.keys(bodyProperties ?? {}).some((name) => Object.hasOwn(properties, name));
+  if (!isObject || clashes) {
+    if (Object.hasOwn(properties, BODY_INPUT)) {
+      throw new SkipError(
+        "unsupported-parameter",
+        `the parameter "${BODY_INPUT}" clashes with the body input`,
+      );
+    }
+    properties[BODY_INPUT] = raw;
+    if (bodyRequired) {
+      required.push(BODY_INPUT);
+    }
+    return { mapping: { mode: "wrapped", required: bodyRequired }, additionalProperties: false };
+  }
+  Object.assign(properties, bodyProperties ?? {});
+  if (bodyRequired && Array.isArray(schema.required)) {
+    required.push(...(schema.required as string[]));
+  }
+  const additional = schema.additionalProperties;
+  return {
+    mapping: { mode: "merged", required: bodyRequired },
+    additionalProperties: additional === undefined ? false : additional,
+  };
+}
+
+/** The schema a top-level `$ref` names, so its properties can be merged. */
+function dereferenceTop(document: OpenApiDocument, schema: JsonSchema): JsonSchema {
+  const seen = new Set<string>();
+  let current = schema;
+  while (typeof current.$ref === "string") {
+    if (seen.has(current.$ref)) {
+      throw new UnresolvableReferenceError(current.$ref);
+    }
+    seen.add(current.$ref);
+    const { $ref: reference, ...siblings } = current;
+    const target = lookupPointer(document, reference as string);
+    if (target === null || typeof target !== "object") {
+      throw new UnresolvableReferenceError(reference as string);
+    }
+    current = { ...(target as JsonSchema), ...siblings };
+  }
+  return current;
+}
