@@ -94,6 +94,10 @@ jobs:
           security unlock-keychain -p keychain-proof "$keychain"
           security list-keychains -d user -s "$keychain"
           security default-keychain -d user -s "$keychain"
+          security default-keychain -d user
+          security show-keychain-info "$keychain"
+          security add-generic-password -s tw.lazco.cli.check -a check -w check
+          security delete-generic-password -s tw.lazco.cli.check -a check >/dev/null
       - name: Start a Secret Service
         if: runner.os == 'Linux'
         run: |

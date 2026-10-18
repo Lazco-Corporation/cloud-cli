@@ -91,7 +91,12 @@ public static class LazcoCredentials {
   public static string[] Targets(string filter) {
     int count; IntPtr list;
     // A filter takes a trailing "*" only, so the caller enumerates all and filters itself.
-    if (!CredEnumerate(filter, filter == null ? 1 : 0, out count, out list)) { return new string[0]; }
+    if (!CredEnumerate(filter, filter == null ? 1 : 0, out count, out list)) {
+      int error = Marshal.GetLastWin32Error();
+      // ERROR_NOT_FOUND: no credential at all.
+      if (error == 1168) { return new string[0]; }
+      throw new System.ComponentModel.Win32Exception(error);
+    }
     var targets = new string[count];
     for (int index = 0; index < count; index++) {
       var item = Marshal.ReadIntPtr(list, index * IntPtr.Size);
@@ -103,7 +108,9 @@ public static class LazcoCredentials {
   }
 }
 '@
-[LazcoCredentials]::Targets($null) | Where-Object { $_ -like '*${SERVICE}*' } | ForEach-Object { $_ }
+$all = [LazcoCredentials]::Targets($null)
+[Console]::Error.WriteLine("credential manager holds " + $all.Count + " credentials")
+$all | Where-Object { $_ -like '*${SERVICE}*' } | ForEach-Object { $_ }
 `;
     const result = await run("powershell.exe", [
       "-NoProfile",
@@ -114,7 +121,9 @@ public static class LazcoCredentials {
     if (result.code !== 0) {
       fail(`the PowerShell credential reader failed: ${result.stderr.trim()}`);
     }
-    console.log(`credential manager entries: ${result.stdout.trim() || "none"}`);
+    console.log(
+      `${result.stderr.trim()}, entries of ${SERVICE}: ${result.stdout.trim() || "none"}`,
+    );
     return result.stdout.split(/\r?\n/).some((line) => line.includes(profile));
   }
   return fail(`no OS tool is known for ${process.platform}`);
