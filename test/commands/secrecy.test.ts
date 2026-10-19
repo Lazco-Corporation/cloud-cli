@@ -6,6 +6,7 @@ import { type CliRun, cliEnv, FAKE_TOKEN, makeHome, runInProcess } from "../help
 import { FakeApi, fakeClock, json } from "../helpers/fakeApi";
 import { fixtureApi } from "../helpers/fixtureApi";
 import { accountOf, brokenKeychain, memoryKeychain } from "../helpers/keychain";
+import { connectSession } from "../helpers/mcp";
 import { PagesApi } from "../helpers/pagesApi";
 
 const KEYCHAIN_TOKEN = `lz_live_${"0".repeat(48)}beefbeef12345678`;
@@ -333,4 +334,50 @@ describe("no credential is shown by a Pages deploy", () => {
       await pagesHome.cleanup();
     }
   }, 60_000);
+});
+
+describe("no credential is shown by the MCP deploy tool", () => {
+  test("its result and its progress, when the API and the storage echo the credential", async () => {
+    const pagesHome = await makeHome();
+    const site = join(pagesHome.home, "site");
+    await mkdir(site, { recursive: true });
+    await writeFile(join(site, "index.html"), "<p>hi</p>");
+    await writeFile(join(site, "logo.png"), "png");
+    const api = new PagesApi();
+    // The storage refuses with the credential in its code, and the cancel echoes the header.
+    api.state.storage = () =>
+      new Response(`<Error><Code>${FAKE_TOKEN}</Code></Error>`, { status: 400 });
+    api.state.answer = (request) =>
+      request.path.endsWith("/cancel")
+        ? json(500, {
+            error: `rejected ${request.headers.authorization}`,
+            code: "ECHO",
+            [request.headers.authorization ?? "none"]: "x",
+          })
+        : undefined;
+    const session = await connectSession(api, {
+      allowWrites: true,
+      cacheDirectory: pagesHome.cache,
+      clock: fakeClock(Date.now()),
+    });
+    try {
+      const progress: string[] = [];
+      const result = await session.client.callTool(
+        { name: "labs_pages_create_deployment", arguments: { id: "site-1", directory: site } },
+        undefined,
+        { onprogress: (update) => progress.push(update.message ?? "") },
+      );
+      expect(result.isError).toBe(true);
+      expect(api.requests.some((request) => request.path.endsWith("/cancel"))).toBe(true);
+      const shown = [JSON.stringify(result), ...progress];
+      expect(shown.join("\n")).toContain("[REDACTED]");
+      for (const text of shown) {
+        expect(text.includes(FAKE_TOKEN) || text.includes(FAKE_TOKEN.slice(-8))).toBe(false);
+      }
+    } finally {
+      await session.close();
+      api.stop();
+      await pagesHome.cleanup();
+    }
+  });
 });

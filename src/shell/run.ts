@@ -535,7 +535,7 @@ class Shell {
         homeDirectory: this.paths.home,
         workingDirectory: process.cwd(),
         requireAbsolutePaths: false,
-        progress: (message) => writeNotice(this.io, message),
+        progress: (message) => writeNotice(this.io, redactSecrets(message, this.secrets())),
       });
       writeResult(this.io, { record: result }, output);
     } finally {

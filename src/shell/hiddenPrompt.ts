@@ -7,8 +7,9 @@ import type { Io } from "./io";
  */
 export async function readHidden(io: Io, question: string): Promise<string> {
   const stdin = io.stdin as NodeJS.ReadStream;
-  io.stderr.write(question);
+  // Echo goes off before the question shows, so a paste that follows it at once never echoes.
   stdin.setRawMode(true);
+  io.stderr.write(question);
   stdin.setEncoding("utf8");
   stdin.resume();
   return await new Promise<string>((resolve, reject) => {

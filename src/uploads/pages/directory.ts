@@ -40,6 +40,12 @@ export function sitePath(
   return paths.relative(root, absolutePath).split(paths.sep).join("/");
 }
 
+/** True when `inner` is below `outer`. */
+function holds(outer: string, inner: string, paths: PathFunctions): boolean {
+  const relative = paths.relative(outer, inner);
+  return relative !== "" && relative.split(paths.sep)[0] !== ".." && !paths.isAbsolute(relative);
+}
+
 /** True for `/`, `C:\` and `\\server\share\`. */
 export function isFilesystemRoot(path: string, paths: PathFunctions = nodePath): boolean {
   const resolved = paths.resolve(path);
@@ -60,7 +66,7 @@ async function startsLikeZip(path: string): Promise<boolean> {
 /**
  * The real path of the directory to deploy, checked before any request: it
  * exists, it is a directory and not a zip or any other file, and it is not
- * the home directory or a filesystem root. A relative path is refused when
+ * a filesystem root, the home directory, or a directory that holds it. A relative path is refused when
  * `requireAbsolute` is set, as the MCP tool sets it.
  */
 export async function resolveSiteDirectory(
@@ -109,6 +115,9 @@ export async function resolveSiteDirectory(
   }
   if (home !== undefined && real === home) {
     throw problem(`${given} is the home directory, which is never deployed`);
+  }
+  if (home !== undefined && holds(real, home, paths)) {
+    throw problem(`${given} holds the home directory, which is never deployed`);
   }
   return real;
 }

@@ -236,8 +236,10 @@ export async function deployPagesSite(context: UploaderContext): Promise<Record<
       uploadedBytes: uploaded.uploadedBytes,
     };
   } catch (error) {
+    // Read before the cancel, so a Ctrl-C during the cancel never replaces the first error.
+    const interrupted = signal.aborted;
     const cancelled = await cancelDeployment(context, deploymentPath, deployment.id);
-    if (signal.aborted) {
+    if (interrupted) {
       throw new CliError(
         "CLI_TASK_FAILED",
         `Interrupted during the upload of the deployment ${deployment.id}`,

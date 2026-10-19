@@ -211,6 +211,96 @@ describe("the renewal", () => {
     expect(storage.puts).toHaveLength(2);
   });
 
+  test("three PUTs refused at once each get a new URL, whichever renewal they wait on", async () => {
+    const files = await siteFiles(root, { "a.png": "a", "b.png": "b", "c.png": "c" });
+    const { window, renewals, renew } = setUp(files);
+    storage.handler = async (put) => {
+      if (put.attempt === 1) {
+        // b and c are refused while the renewal for a is in flight, so both wait on one that lacks them.
+        await Bun.sleep({ "a.png": 0, "b.png": 5, "c.png": 10 }[put.path] ?? 0);
+        return new Response(null, { status: 403 });
+      }
+      return new Response(null, { status: 200 });
+    };
+    const result = await uploadFiles({
+      uploads: signedUploads(storage, files),
+      files,
+      lastExtensions: new Set(["html"]),
+      window,
+      renew: async (paths) => {
+        await Bun.sleep(40);
+        return renew(paths);
+      },
+      fetch,
+      clock,
+      signal: new AbortController().signal,
+      timer: NEVER,
+    });
+    expect(result.uploaded).toBe(3);
+    expect(renewals.flatMap((renewal) => renewal.paths).sort()).toEqual([
+      "a.png",
+      "b.png",
+      "c.png",
+    ]);
+    for (const name of ["a.png", "b.png", "c.png"]) {
+      const puts = storage.puts.filter((put) => put.path === name);
+      expect(puts.map((put) => put.attempt)).toEqual([1, 2]);
+      expect(generationOf(puts[1]?.url as string)).not.toBe("0");
+    }
+  });
+
+  test("a renewal with no answer is sent again while the window is open", async () => {
+    const files = await siteFiles(root, { "site.css": "p{}" });
+    const { window, renewals, renew } = setUp(files);
+    storage.handler = (put) => new Response(null, { status: put.attempt === 1 ? 403 : 200 });
+    let failures = 2;
+    const result = await uploadFiles({
+      uploads: signedUploads(storage, files),
+      files,
+      lastExtensions: new Set(["html"]),
+      window,
+      renew: async (paths) => {
+        if (failures > 0) {
+          failures -= 1;
+          throw new CliError("CLI_NETWORK", "The API could not be reached");
+        }
+        return renew(paths);
+      },
+      fetch,
+      clock,
+      signal: new AbortController().signal,
+      timer: NEVER,
+    });
+    expect(result.uploaded).toBe(1);
+    expect(renewals).toHaveLength(1);
+    expect(failures).toBe(0);
+  });
+
+  test("a renewal that keeps failing ends the upload after 3 retries", async () => {
+    const files = await siteFiles(root, { "site.css": "p{}" });
+    const { window } = setUp(files);
+    storage.handler = () => new Response(null, { status: 403 });
+    let calls = 0;
+    const error = await failure(
+      uploadFiles({
+        uploads: signedUploads(storage, files),
+        files,
+        lastExtensions: new Set(["html"]),
+        window,
+        renew: async () => {
+          calls += 1;
+          throw new ApiError(503, "SERVICE_UNAVAILABLE", "Unavailable", {});
+        },
+        fetch,
+        clock,
+        signal: new AbortController().signal,
+        timer: NEVER,
+      }),
+    );
+    expect(error).toEqual(expect.objectContaining({ status: 503 }));
+    expect(calls).toBe(4);
+  });
+
   test("PAGES_UPLOAD_EXPIRED from the renewal ends the upload as that server error", async () => {
     const files = await siteFiles(root, { "site.css": "p{}" });
     const { window } = setUp(files);

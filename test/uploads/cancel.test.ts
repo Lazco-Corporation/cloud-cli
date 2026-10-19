@@ -116,6 +116,19 @@ describe("the cancel", () => {
     expect(cancels()).toHaveLength(1);
   });
 
+  test("a Ctrl-C during the cancel keeps the first error", async () => {
+    api.state.storage = () =>
+      new Response("<Error><Code>BadDigest</Code></Error>", { status: 400 });
+    api.state.onRequest = (request) => {
+      if (request.path.endsWith("/cancel")) {
+        interrupt?.();
+      }
+    };
+    const run = await deploy();
+    expect(run.error.code).toBe("CLI_BAD_RESPONSE");
+    expect(cancels()).toHaveLength(1);
+  });
+
   test("a cancel that fails is reported, and the first error stays", async () => {
     api.state.storage = () => new Response(null, { status: 400 });
     api.state.onRequest = (request) => {

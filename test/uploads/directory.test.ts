@@ -153,6 +153,16 @@ describe("the directory input", () => {
     expect((await failure(resolve("home-link", { home }))).message).toContain("home directory");
   });
 
+  test("a directory that holds the home directory is refused, as /Users is", async () => {
+    await mkdir(path.join(base, "users", "me"), { recursive: true });
+    await put("users/me-site/index.html");
+    const home = path.join(base, "users", "me");
+    const error = await failure(resolve("users", { home }));
+    expect(error.code).toBe("CLI_INVALID_INPUT");
+    expect(error.message).toContain("holds the home directory");
+    expect(await resolve("users/me-site", { home })).toBe(path.join(base, "users", "me-site"));
+  });
+
   test("a filesystem root is refused", async () => {
     const error = await failure(resolve("/"));
     expect(error.code).toBe("CLI_INVALID_INPUT");
