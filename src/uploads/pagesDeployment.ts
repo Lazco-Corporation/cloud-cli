@@ -236,15 +236,15 @@ export async function deployPagesSite(context: UploaderContext): Promise<Record<
       uploadedBytes: uploaded.uploadedBytes,
     };
   } catch (error) {
-    const reported = signal.aborted
-      ? new CliError(
-          "CLI_TASK_FAILED",
-          `Interrupted during the upload of the deployment ${deployment.id}`,
-          { interrupted: true, deployment },
-        )
-      : error;
-    await cancelDeployment(context, deploymentPath, deployment.id);
-    throw reported;
+    const cancelled = await cancelDeployment(context, deploymentPath, deployment.id);
+    if (signal.aborted) {
+      throw new CliError(
+        "CLI_TASK_FAILED",
+        `Interrupted during the upload of the deployment ${deployment.id}`,
+        { interrupted: true, deployment: cancelled ?? deployment },
+      );
+    }
+    throw error;
   }
 
   try {
@@ -281,13 +281,20 @@ async function cancelDeployment(
   context: UploaderContext,
   deploymentPath: string,
   deploymentId: string,
-): Promise<void> {
+): Promise<Deployment | undefined> {
+  let response: Awaited<ReturnType<typeof context.client.call>>;
   try {
-    await context.client.call({ method: "POST", path: `${deploymentPath}/cancel` });
-    context.progress(`cancelled the deployment ${deploymentId}, so the next deploy can start`);
+    response = await context.client.call({ method: "POST", path: `${deploymentPath}/cancel` });
   } catch (error) {
     context.progress(
       `warning: the deployment ${deploymentId} could not be cancelled (${toToolError(error).message}). It ends by itself when its upload window does`,
     );
+    return undefined;
+  }
+  context.progress(`cancelled the deployment ${deploymentId}, so the next deploy can start`);
+  try {
+    return parseDeployment(requireJson(response));
+  } catch {
+    return undefined;
   }
 }
