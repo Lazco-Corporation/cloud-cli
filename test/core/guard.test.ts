@@ -103,7 +103,7 @@ describe("schema check", () => {
       prepareRequest(
         operation("compute create"),
         { hostname: "web-1", planSlug: "s1" },
-        { apiUrl, validator },
+        { apiUrl, validator, idempotencyKey: "key-1" },
       ),
     );
     expect(error.code).toBe("CLI_INVALID_INPUT");
@@ -122,7 +122,7 @@ describe("schema check", () => {
           cloudInit: { userData: 3 },
           colour: "red",
         },
-        { apiUrl, validator },
+        { apiUrl, validator, idempotencyKey: "key-1" },
       ),
     );
     expect(error.details).toEqual(

@@ -320,3 +320,37 @@ describe("the 5-minute check", () => {
     expect(session.scheduler.stopped).toBe(1);
   });
 });
+
+describe("Idempotency-Key in MCP", () => {
+  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  test("the header is no field of the tool's inputSchema", async () => {
+    const session = await start(true);
+    const tool = (await session.client.listTools()).tools.find(
+      (candidate) => candidate.name === "sshkeys_create",
+    );
+    expect(tool).toBeDefined();
+    expect(JSON.stringify(tool?.inputSchema).toLowerCase()).not.toContain("idempotency");
+  });
+
+  test("each call of a tool that declares the header sends its own new key", async () => {
+    const session = await start(true);
+    const arguments_ = { name: "laptop", publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5" };
+    await session.client.callTool({ name: "sshkeys_create", arguments: arguments_ });
+    await session.client.callTool({ name: "sshkeys_create", arguments: arguments_ });
+    const keys = api.requests
+      .filter((request) => request.method === "POST" && request.path === "/v1/ssh-keys")
+      .map((request) => request.headers["idempotency-key"]);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toMatch(UUID_V4);
+    expect(keys[1]).toMatch(UUID_V4);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  test("a tool whose operation does not declare it sends none", async () => {
+    const session = await start();
+    await session.client.callTool({ name: "compute_get_server", arguments: { serverId: "srv-1" } });
+    const read = api.requests.find((request) => request.path === "/v1/servers/srv-1");
+    expect(read?.headers["idempotency-key"]).toBeUndefined();
+  });
+});

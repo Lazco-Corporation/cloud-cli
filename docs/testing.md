@@ -42,8 +42,12 @@ infisical run --env=staging --path=/ci --projectId 0248054f-6632-402a-b7b9-290b9
 ```
 
 `LAZCO_CONTRACT_API_URL` points them at another API, such as a local backend.
+`LAZCO_CONTRACT_SPEND=1` adds the one test that spends: it buys a Pages pack twice with one `--idempotency-key`, checks the replay, and deletes the pack.
+A pack costs a month of it with no refund, so the `contract` job sets it only on a push to `main`.
+The organization needs the `pages` feature and a balance of one pack month.
+The test deletes every pack of the organization that still renews, before and after the purchase, so never run it by hand while a `contract` job of `main` runs.
 
-They read every `read` operation that needs no input, round-trip an SSH key, check the 401, 404, guard and schema errors, walk both list shapes with `--page-all`, and check the MCP tiers with both tokens.
+They read every `read` operation that needs no input, round-trip an SSH key, check the 401, 404, guard and schema errors, walk both list shapes with `--page-all`, check that every `spend` operation requires `Idempotency-Key`, and check the MCP tiers with both tokens.
 Every SSH key they create is named `cli-contract-<suffix>`, and each run deletes every such key at its start and its end, so a cancelled run leaves nothing for long.
 The `contract` job runs one at a time, because every run writes to the same organization.
 `async` and `etag` are checked by the fixtures only, because a staging deploy costs credit and a DNS write needs a delegated zone.

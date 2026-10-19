@@ -157,7 +157,7 @@ export async function deployPagesSite(context: UploaderContext): Promise<Record<
       dryRun: true,
       method: "POST",
       url: client.url({ path: deploymentsPath }),
-      headers: client.publicHeaders({ body }),
+      headers: client.publicHeaders({ body, headers: context.request.headers }),
       body,
     };
   }
@@ -166,9 +166,11 @@ export async function deployPagesSite(context: UploaderContext): Promise<Record<
   }
 
   context.progress(`starting a deployment of ${files.length} files`);
+  // The operation's own headers, such as an Idempotency-Key the spec declares for it.
   const startResponse = await client.call({
     method: "POST",
     path: deploymentsPath,
+    headers: context.request.headers,
     body: { files: manifest },
   });
   const startBody = requireJson(startResponse);

@@ -8,7 +8,7 @@ import {
   currentPathEnvironment,
   type PathEnvironment,
 } from "../config/paths";
-import { CliError, redactSecrets, toToolError } from "../core/errors";
+import { ApiError, CliError, redactSecrets, toToolError } from "../core/errors";
 import { describeSkip, generateSurface, type Operation } from "../core/generate/operations";
 import { CommandTree, type Resolution } from "../core/generate/tree";
 import { createAjv } from "../core/request/ajv";
@@ -22,6 +22,7 @@ import {
   type Task,
 } from "../core/request/execute";
 import type { InputProblem } from "../core/request/guard";
+import { extractIdempotencyKeyFlag, newIdempotencyKey } from "../core/request/idempotency";
 import { nextPageFlag, readPage, walkPages } from "../core/request/paginate";
 import { RateLimiter } from "../core/request/rateLimiter";
 import { InputValidator } from "../core/request/validate";
@@ -162,6 +163,11 @@ class Shell {
       limiter: this.limiter,
       fetch: this.fetchImplementation,
       clock: this.clock,
+      onReplay: (key) =>
+        writeNotice(
+          this.io,
+          `note: this is the stored result of the first request with Idempotency-Key ${key}. Nothing ran again`,
+        ),
     });
   }
 
@@ -413,12 +419,16 @@ class Shell {
       );
       return;
     }
+    const keyFlag =
+      entry.source.type === "operation" && entry.source.operation.idempotencyKey === "required"
+        ? extractIdempotencyKeyFlag(tokens)
+        : { key: undefined, rest: [...tokens] };
     const payloadText = this.flags.json === "-" ? await readAll(this.io.stdin) : this.flags.json;
     const payload = payloadText === undefined ? undefined : parsePayload(payloadText);
     const input = buildInput({
       schema: entry.inputSchema,
       positionals: entry.positionals,
-      tokens,
+      tokens: keyFlag.rest,
       payload,
     });
     const output = { human: this.flags.human, fields: this.flags.fields, secrets: this.secrets() };
@@ -439,12 +449,44 @@ class Shell {
         [{ field: "page-all", message: "needs a paginated command" }],
       );
     }
+    // One key for the whole run, so every retry of it carries the same key.
+    const idempotencyKey =
+      operation.idempotencyKey === null ? undefined : (keyFlag.key ?? newIdempotencyKey());
     const prepare = (pageInput: Record<string, unknown>): ApiRequest =>
       prepareRequest(operation, pageInput, {
         apiUrl: session.apiUrl,
         validator: this.validator,
+        idempotencyKey,
       });
     checkBeforeConfirm(operation, input, prepare);
+    try {
+      await this.sendOperation(entry, operation, input, prepare, output);
+    } catch (error) {
+      // A key the user never saw is the only way back to the first result.
+      if (
+        operation.idempotencyKey === "required" &&
+        keyFlag.key === undefined &&
+        idempotencyKey !== undefined &&
+        outcomeUnknown(error)
+      ) {
+        writeNotice(
+          this.io,
+          `the request may have run. To get its result instead of running it again, run the same command with --idempotency-key ${idempotencyKey}`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  /** Confirms, then sends an operation's request, or prints it for `--dry-run`. */
+  private async sendOperation(
+    entry: CommandEntry,
+    operation: Operation,
+    input: Record<string, unknown>,
+    prepare: (input: Record<string, unknown>) => ApiRequest,
+    output: { human: boolean; fields: string[] | undefined; secrets: string[] },
+  ): Promise<void> {
+    const session = await this.session();
     if (operation.body.mode === "upload") {
       const confirmedUpload = this.flags.dryRun
         ? input
@@ -581,6 +623,25 @@ function dryRunPreview(
     };
   }
   return preview;
+}
+
+/**
+ * True for an error after which nobody knows whether the API ran the request:
+ * no answer, an answer that is not the API's, the key's first request still
+ * running, or a 429, which the API answers before it looks at the key, so an
+ * earlier try may have run. Any other answer of the API's error shape is final
+ * and stored under the key.
+ */
+function outcomeUnknown(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.code === "IDEMPOTENCY_KEY_IN_PROGRESS" || error.status === 429;
+  }
+  return (
+    error instanceof CliError &&
+    (error.code === "CLI_NETWORK" ||
+      error.code === "CLI_TIMEOUT" ||
+      error.code === "CLI_BAD_RESPONSE")
+  );
 }
 
 function startsWith(command: readonly string[], prefix: readonly string[]): boolean {

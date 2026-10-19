@@ -27,6 +27,19 @@
         "operationId": "compute.servers.create",
         "summary": "Create a server",
         "x-lazco": { "cli": "compute create", "mcp": false, "kind": "spend", "async": "task" },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation."
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -220,6 +233,14 @@
           "mcp": { "name": "sshkeys_create" },
           "kind": "write"
         },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 255 }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
