@@ -122,6 +122,16 @@ describe("API client", () => {
     expect(api.requests).toHaveLength(2);
   });
 
+  test("a GET waits the Retry-After of a 503 too", async () => {
+    api.handler = sequence(() =>
+      json(503, { error: "Busy", code: "SERVICE_UNAVAILABLE" }, { "retry-after": "2" }),
+    );
+    const { client: apiClient, clock } = client();
+    await apiClient.call({ method: "GET", path: "/servers" });
+    expect(clock.sleeps).toEqual([2000]);
+    expect(api.requests).toHaveLength(2);
+  });
+
   test("a Retry-After over 60 seconds returns the 429 at once", async () => {
     api.handler = () =>
       json(429, { error: "Too many", code: "RATE_LIMITED" }, { "retry-after": "61" });
@@ -436,6 +446,33 @@ describe("a request with Idempotency-Key", () => {
     } finally {
       await dropping.stop();
     }
+  });
+
+  test("the resend after a 401 and a refreshed token carries the same key", async () => {
+    api.handler = (request) =>
+      request.headers.authorization === "Bearer old-access"
+        ? json(401, { error: "Expired", code: "UNAUTHORIZED" })
+        : json(202, { taskId: "t-1" });
+    const clock = fakeClock();
+    const apiClient = new ApiClient({
+      apiUrl: api.apiUrl,
+      credential: {
+        cacheKey: "sso",
+        bearer: async () => "old-access",
+        renewAfterUnauthorized: async () => "new-access",
+        secrets: () => ["old-access", "new-access"],
+      },
+      userAgent: "lazco-cli/test",
+      limiter: new RateLimiter(clock),
+      clock,
+    });
+    const response = await apiClient.call(keyed());
+    expect(response.status).toBe(202);
+    expect(api.requests.map((request) => request.headers.authorization)).toEqual([
+      "Bearer old-access",
+      "Bearer new-access",
+    ]);
+    expect(keysSent()).toEqual(["key-1", "key-1"]);
   });
 
   test("a timeout is not sent again", async () => {

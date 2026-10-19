@@ -194,6 +194,37 @@ describe("a keyed request that the API refuses", () => {
     expect(createRequests()).toHaveLength(1);
   });
 
+  test("no answer after every try prints the generated key to run again with", async () => {
+    store.api.handler = () => new Response("<html>502</html>", { status: 502 });
+    const result = await runInProcess(["--api-url", store.api.apiUrl, ...CREATE], {
+      env: env(),
+      clock: fakeClock(),
+    });
+    expect(result.code).toBe(1);
+    expect(createRequests()).toHaveLength(5);
+    const key = createRequests()[0]?.headers["idempotency-key"] as string;
+    expect(key).toMatch(UUID_V4);
+    expect(result.stderr).toContain(
+      `the request may have run. To get its result instead of running it again, run the same command with --idempotency-key ${key}`,
+    );
+    expect(JSON.parse(result.stderr.trim().split("\n").at(-1) as string).error.code).toBe(
+      "CLI_BAD_RESPONSE",
+    );
+  });
+
+  test("the key is not printed again when the user gave it, or after a final answer", async () => {
+    store.api.handler = () => new Response("<html>502</html>", { status: 502 });
+    const given = await runInProcess(
+      ["--api-url", store.api.apiUrl, ...CREATE, "--idempotency-key", "deploy-42"],
+      { env: env(), clock: fakeClock() },
+    );
+    expect(given.stderr).not.toContain("may have run");
+    store.api.handler = () =>
+      json(402, { error: "Not enough credit", code: "INSUFFICIENT_CREDIT" });
+    const final = await run(CREATE);
+    expect(final.stderr).not.toContain("may have run");
+  });
+
   test("a replayed refusal also carries the replay note", async () => {
     store.api.handler = () =>
       json(

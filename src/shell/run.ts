@@ -8,7 +8,7 @@ import {
   currentPathEnvironment,
   type PathEnvironment,
 } from "../config/paths";
-import { CliError, redactSecrets, toToolError } from "../core/errors";
+import { ApiError, CliError, redactSecrets, toToolError } from "../core/errors";
 import { describeSkip, generateSurface, type Operation } from "../core/generate/operations";
 import { CommandTree, type Resolution } from "../core/generate/tree";
 import { createAjv } from "../core/request/ajv";
@@ -459,6 +459,34 @@ class Shell {
         idempotencyKey,
       });
     checkBeforeConfirm(operation, input, prepare);
+    try {
+      await this.sendOperation(entry, operation, input, prepare, output);
+    } catch (error) {
+      // A key the user never saw is the only way back to the first result.
+      if (
+        operation.idempotencyKey === "required" &&
+        keyFlag.key === undefined &&
+        idempotencyKey !== undefined &&
+        outcomeUnknown(error)
+      ) {
+        writeNotice(
+          this.io,
+          `the request may have run. To get its result instead of running it again, run the same command with --idempotency-key ${idempotencyKey}`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  /** Confirms, then sends an operation's request, or prints it for `--dry-run`. */
+  private async sendOperation(
+    entry: CommandEntry,
+    operation: Operation,
+    input: Record<string, unknown>,
+    prepare: (input: Record<string, unknown>) => ApiRequest,
+    output: { human: boolean; fields: string[] | undefined; secrets: string[] },
+  ): Promise<void> {
+    const session = await this.session();
     if (operation.body.mode === "upload") {
       const confirmedUpload = this.flags.dryRun
         ? input
@@ -595,6 +623,23 @@ function dryRunPreview(
     };
   }
   return preview;
+}
+
+/**
+ * True for an error after which nobody knows whether the API ran the request:
+ * no answer, an answer that is not the API's, or the key's first request still
+ * running. An answer of the API's error shape is final and stored under the key.
+ */
+function outcomeUnknown(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.code === "IDEMPOTENCY_KEY_IN_PROGRESS";
+  }
+  return (
+    error instanceof CliError &&
+    (error.code === "CLI_NETWORK" ||
+      error.code === "CLI_TIMEOUT" ||
+      error.code === "CLI_BAD_RESPONSE")
+  );
 }
 
 function startsWith(command: readonly string[], prefix: readonly string[]): boolean {

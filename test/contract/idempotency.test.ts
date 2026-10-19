@@ -23,6 +23,8 @@ const features = await stagingFeatures(READ_TOKEN);
 let home: Awaited<ReturnType<typeof temporaryHome>>;
 
 type Pack = { id: string; status: string };
+/** The pack statuses that still renew, so a delete is due. */
+const RENEWING: ReadonlySet<string> = new Set(["active", "renewal_grace", "suspended"]);
 
 beforeAll(async () => {
   home = await temporaryHome();
@@ -36,10 +38,31 @@ function succeeded(run: Run): { code: number; stderr: string } {
   return { code: run.code, stderr: run.stderr };
 }
 
-async function packIds(): Promise<string[]> {
+async function packs(): Promise<Pack[]> {
   const run = await lazco(home.home, READ_TOKEN, ["labs", "pages", "entitlement", "get"]);
   expect(succeeded(run)).toEqual({ code: 0, stderr: "" });
-  return ((JSON.parse(run.stdout) as { packs: Pack[] }).packs ?? []).map((pack) => pack.id);
+  return (JSON.parse(run.stdout) as { packs?: Pack[] }).packs ?? [];
+}
+
+/**
+ * Deletes every pack that still renews. Only this test buys packs in the
+ * contract organization, so one left by a run that stopped early is deleted
+ * here, before it renews.
+ */
+async function deleteLivePacks(): Promise<void> {
+  for (const pack of await packs()) {
+    if (RENEWING.has(pack.status)) {
+      const deleted = await lazco(home.home, WRITE_TOKEN, [
+        "labs",
+        "pages",
+        "packs",
+        "delete",
+        pack.id,
+        "--yes",
+      ]);
+      expect(succeeded(deleted)).toEqual({ code: 0, stderr: "" });
+    }
+  }
 }
 
 describe("Idempotency-Key", () => {
@@ -63,14 +86,14 @@ describe("Idempotency-Key", () => {
       expect(create?.idempotencyKey).toBe("required");
       expect(features.pages).toBe(true);
 
-      const before = await packIds();
+      await deleteLivePacks();
+      const before = (await packs()).map((pack) => pack.id);
       const key = `cli-contract-${Date.now()}-${process.pid}`;
       const args = [...PACK_CREATE, "--yes", "--idempotency-key", key];
-      let bought: Pack | undefined;
       try {
         const first = await lazco(home.home, WRITE_TOKEN, args);
         expect(succeeded(first)).toEqual({ code: 0, stderr: "" });
-        bought = JSON.parse(first.stdout) as Pack;
+        const bought = JSON.parse(first.stdout) as Pack;
         expect(typeof bought.id).toBe("string");
 
         const second = await lazco(home.home, WRITE_TOKEN, args);
@@ -78,20 +101,11 @@ describe("Idempotency-Key", () => {
         expect(second.stdout).toBe(first.stdout);
         expect(second.stderr).toContain(`Idempotency-Key ${key}. Nothing ran again`);
 
-        const added = (await packIds()).filter((id) => !before.includes(id));
+        const added = (await packs()).map((pack) => pack.id).filter((id) => !before.includes(id));
         expect(added).toEqual([bought.id]);
       } finally {
-        if (bought?.id) {
-          const deleted = await lazco(home.home, WRITE_TOKEN, [
-            "labs",
-            "pages",
-            "packs",
-            "delete",
-            bought.id,
-            "--yes",
-          ]);
-          expect(succeeded(deleted)).toEqual({ code: 0, stderr: "" });
-        }
+        // Whatever failed above, no pack this run bought is left to renew.
+        await deleteLivePacks();
       }
     },
     TIMEOUT_MS,

@@ -74,6 +74,7 @@ Every `spend` operation declares it as required.
   A key outside 1 to 255 printable ASCII characters is `CLI_INVALID_INPUT` before any request.
 - The header is no field of `--describe`'s input schema or of a tool's `inputSchema`. `--describe` names it in `idempotencyKey`, as `required`, `optional` or `null`.
 - `--dry-run` prints the header with the key it would send.
+- When a run with a generated key ends with no final answer (`CLI_NETWORK`, `CLI_TIMEOUT`, `CLI_BAD_RESPONSE` or `IDEMPOTENCY_KEY_IN_PROGRESS`), stderr names the key, so the user can run the command again with `--idempotency-key` and get the first result.
 - An answer with `Idempotent-Replayed: true` writes a note with the key to stderr, and stdout is the same JSON as the first answer.
 - An uploader sends the operation's headers on its own start request. Its other requests, such as the Pages renewal and finalize, go to routes that declare no key, so the client sends each of them once and the uploader alone decides any retry.
 
