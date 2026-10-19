@@ -50,9 +50,11 @@ The `contract` job runs one at a time, because every run writes to the same orga
 
 ## The MCP evaluation set
 
-`eval/mcp/tasks.yaml` holds 40 tasks in natural language against the contract organization.
+`eval/mcp/tasks.yaml` holds 44 tasks in natural language against the contract organization.
 Each has the tier it needs, the tools a good run calls, and a CLI command whose output proves the answer.
 `eval/mcp/run.ts` runs them through `pi` and grades each one.
+
+The Pages tasks deploy to an active Pages site of the contract organization, named `cli-eval` unless `--pages-site <name>` names another.
 
 1. Sign in a profile with the contract token: pipe it from `infisical run` into `lazco --profile staging --api-url https://api-staging.lazco.tw auth login --with-token`.
 2. Copy `~/.pi/agent/mcp.json`, if it exists.
@@ -62,6 +64,6 @@ Each has the tier it needs, the tools a good run calls, and a CLI command whose 
 6. Put the copy of `~/.pi/agent/mcp.json` back.
 
 The runner prints a JSON summary with the pass list and each failure.
-The bar is 36 of 40.
+The bar is 40 of 44.
 The results go into the pull request, never into the repo, because they depend on the model and the day.
 A weak result is usually a weak `summary` or `description` in the spec, and the fix belongs in `cloud-backend`.
