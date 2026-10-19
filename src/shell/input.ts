@@ -1,5 +1,6 @@
 import { CliError } from "../core/errors";
 import type { InputProblem } from "../core/request/guard";
+import { IDEMPOTENCY_KEY_FLAG } from "../core/request/idempotency";
 import type { JsonSchema } from "../core/spec/types";
 import { isGlobalFlagName } from "./globalFlags";
 
@@ -73,8 +74,8 @@ function flagShape(schema: JsonSchema): { kind: FlagKind; repeated: boolean } | 
 /**
  * The flags of an input schema. A property becomes a flag when it is a scalar
  * or a list of scalars, is not positional, and its kebab-case name clashes
- * with no global flag and no other property. Every other property is given
- * through `--json`.
+ * with no global flag, no operation flag such as `--idempotency-key`, and no
+ * other property. Every other property is given through `--json`.
  */
 export function flagSpecs(schema: JsonSchema, positionals: readonly string[]): FlagSpec[] {
   const properties = (schema.properties ?? {}) as Record<string, JsonSchema>;
@@ -95,7 +96,13 @@ export function flagSpecs(schema: JsonSchema, positionals: readonly string[]): F
   }
   const specs: FlagSpec[] = [];
   for (const { property, propertySchema, flag, shape } of candidates) {
-    if (!flag || !shape || counts.get(flag) !== 1 || isGlobalFlagName(flag)) {
+    if (
+      !flag ||
+      !shape ||
+      counts.get(flag) !== 1 ||
+      isGlobalFlagName(flag) ||
+      flag === IDEMPOTENCY_KEY_FLAG
+    ) {
       continue;
     }
     specs.push({

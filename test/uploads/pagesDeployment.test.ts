@@ -3,6 +3,7 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { cliEnv, FAKE_TOKEN, makeHome, runInProcess } from "../helpers/cli";
 import { fakeClock } from "../helpers/fakeApi";
+import { loadFixture } from "../helpers/fixtures";
 import { type ConnectedSession, connectSession, resultJson } from "../helpers/mcp";
 import { PagesApi } from "../helpers/pagesApi";
 
@@ -241,5 +242,54 @@ describe("the MCP tool", () => {
     expect(tool?.annotations).toEqual(
       expect.objectContaining({ readOnlyHint: false, destructiveHint: false }),
     );
+  });
+});
+
+describe("Idempotency-Key and the uploader's own POSTs", () => {
+  const keyOf = (request: { headers: Record<string, string> }) =>
+    request.headers["idempotency-key"];
+  const posts = () => api.requests.filter((request) => request.method === "POST");
+
+  test("no POST of a deploy carries a key while its routes declare none", async () => {
+    const run = await deploy();
+    expect(run.code).toBe(0);
+    expect(posts().map((request) => request.path.split("/").pop())).toEqual([
+      "deployments",
+      "finalize",
+    ]);
+    expect(posts().map(keyOf)).toEqual([undefined, undefined]);
+  });
+
+  test("so the client never sends a finalize again by itself: only the uploader's own read decides", async () => {
+    let finalizes = 0;
+    api.state.answer = (request) => {
+      if (request.method === "POST" && request.path.endsWith("/finalize")) {
+        finalizes += 1;
+        if (finalizes === 1) {
+          return new Response("bad gateway", { status: 502 });
+        }
+      }
+      return undefined;
+    };
+    const run = await deploy();
+    expect(run.code).toBe(1);
+    expect(finalizes).toBe(1);
+  });
+
+  test("a start that declares the header carries the run's key, and finalize carries none", async () => {
+    const spec = loadFixture("pages");
+    const start = spec.paths["/v1/labs/pages/sites/{id}/deployments"]?.post;
+    if (!start) throw new Error("fixture changed");
+    start.parameters = [
+      ...(start.parameters ?? []),
+      { name: "Idempotency-Key", in: "header", required: true, schema: { type: "string" } },
+    ];
+    api.state.spec = spec;
+    const run = await deploy("--idempotency-key", "deploy-42");
+    expect(run.code).toBe(0);
+    expect(posts().map((request) => [request.path.split("/").pop(), keyOf(request)])).toEqual([
+      ["deployments", "deploy-42"],
+      ["finalize", undefined],
+    ]);
   });
 });

@@ -23,6 +23,11 @@ export const RESERVED_FIRST_WORDS: ReadonlySet<string> = new Set(["auth", "profi
 export const IF_MATCH_INPUT = "ifMatch";
 /** The input that holds the whole body when it cannot be merged. */
 export const BODY_INPUT = "body";
+/** The header a spend operation requires and a few others take, which the core fills itself. */
+export const IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
+
+/** Whether an operation declares `Idempotency-Key`, and how. */
+export type IdempotencyKeyUse = "required" | "optional";
 
 /**
  * How the input object maps onto the body. `merged`: every input property that
@@ -55,6 +60,8 @@ export type Operation = {
   /** The command's positional inputs: the path parameters, then an uploader's own. */
   positionals: readonly string[];
   body: BodyMapping;
+  /** `Idempotency-Key` as the spec declares it, or `null`. Never an input: the core sends it. */
+  idempotencyKey: IdempotencyKeyUse | null;
 };
 
 export type SkipReason =
@@ -208,7 +215,15 @@ function buildOperation(
   const required: string[] = [];
   const pathParameters: string[] = [];
   const queryParameters: string[] = [];
+  let idempotencyKey: IdempotencyKeyUse | null = null;
   for (const parameter of parameters) {
+    if (
+      parameter.in === "header" &&
+      parameter.name.toLowerCase() === IDEMPOTENCY_KEY_HEADER.toLowerCase()
+    ) {
+      idempotencyKey = parameter.required ? "required" : "optional";
+      continue;
+    }
     if (parameter.in === "header" || parameter.in === "cookie") {
       if (parameter.required) {
         throw new SkipError(
@@ -303,6 +318,7 @@ function buildOperation(
     queryParameters,
     positionals: [...pathParameters, ...(uploader?.positionals ?? [])],
     body: body.mapping,
+    idempotencyKey,
   };
 }
 

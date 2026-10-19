@@ -1,4 +1,5 @@
 import { type ArgsDef, type CommandDef, renderUsage } from "citty";
+import { IDEMPOTENCY_KEY_FLAG } from "../core/request/idempotency";
 import type { CommandEntry } from "./entries";
 import { GLOBAL_FLAGS } from "./globalFlags";
 import { flagSpecs } from "./input";
@@ -39,6 +40,7 @@ export async function commandUsage(entry: CommandEntry): Promise<string> {
             required: spec.required,
           };
   }
+  Object.assign(args, operationFlags(entry));
   const definition: CommandDef = {
     meta: {
       name: `lazco ${entry.command.join(" ")}`,
@@ -48,6 +50,31 @@ export async function commandUsage(entry: CommandEntry): Promise<string> {
   };
   const usage = await renderUsage(definition);
   return `${usage}\n\nOther input goes in --json. Run with --describe for the JSON Schema.\n`;
+}
+
+/**
+ * The flags that belong to the operation, not to its input: `--yes` for a
+ * command that asks first, and `--idempotency-key` where the spec requires
+ * the header.
+ */
+function operationFlags(entry: CommandEntry): ArgsDef {
+  const operation = entry.source.type === "operation" ? entry.source.operation : undefined;
+  if (operation === undefined) {
+    return {};
+  }
+  const args: ArgsDef = {};
+  if (operation.kind === "destructive" || operation.kind === "spend") {
+    args.yes = { type: "boolean", description: "Run it without asking to confirm" };
+  }
+  if (operation.idempotencyKey === "required") {
+    args[IDEMPOTENCY_KEY_FLAG] = {
+      type: "string",
+      valueHint: "key",
+      description:
+        "The Idempotency-Key to send (default: a new UUID). Run again with the same key to get the first result, not a second run",
+    };
+  }
+  return args;
 }
 
 /** citty's usage text of a group, or of `lazco` itself when the prefix is empty. */

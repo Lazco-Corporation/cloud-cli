@@ -95,6 +95,7 @@ lazco compute create --json - < server.json --dry-run
 - `--human` prints a table instead. `NO_COLOR` turns its color off.
 - `--page-all` follows every page of a list.
 - A command that deletes or spends asks first on a terminal. `--yes` confirms without asking, and a command that needs the resource's name still needs it in its field.
+- A command that spends sends an `Idempotency-Key`, so a retry after a lost answer never charges twice. `--idempotency-key <key>` chooses the key: run the same command again with the same key, within 24 hours, to get the first result instead of a second charge.
 - A task such as a deploy is waited for. `--no-wait` prints the accepted task at once.
 
 ### Publish a Lazco Pages site

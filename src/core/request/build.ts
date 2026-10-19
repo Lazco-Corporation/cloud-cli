@@ -1,5 +1,10 @@
 import { CliError } from "../errors";
-import { BODY_INPUT, IF_MATCH_INPUT, type Operation } from "../generate/operations";
+import {
+  BODY_INPUT,
+  IDEMPOTENCY_KEY_HEADER,
+  IF_MATCH_INPUT,
+  type Operation,
+} from "../generate/operations";
 import type { ApiRequest } from "./client";
 import { guardPathParameters } from "./guard";
 import type { InputValidator } from "./validate";
@@ -27,13 +32,20 @@ function queryValue(value: unknown): string {
 /**
  * Checks an input object (the path guard, then the spec's JSON Schema) and
  * splits it into the request: path parameters into the path, query parameters
- * into the query, `ifMatch` into `If-Match`, and the rest into the body.
+ * into the query, `ifMatch` into `If-Match`, and the rest into the body. An
+ * operation that declares `Idempotency-Key` gets the run's one key.
  */
 export function prepareRequest(
   operation: Operation,
   input: Record<string, unknown>,
-  context: { apiUrl: string; validator: InputValidator },
+  context: { apiUrl: string; validator: InputValidator; idempotencyKey?: string },
 ): ApiRequest {
+  if (operation.idempotencyKey !== null && context.idempotencyKey === undefined) {
+    throw new CliError(
+      "CLI_INTERNAL",
+      `${operation.operationId} declares ${IDEMPOTENCY_KEY_HEADER}, and no key was made for it`,
+    );
+  }
   const pathValues = guardPathParameters(operation.pathParameters, input);
   context.validator.check(operation.inputSchema, input);
 
@@ -57,6 +69,9 @@ export function prepareRequest(
   const ifMatch = input[IF_MATCH_INPUT];
   if (operation.annotation.concurrency === "etag" && typeof ifMatch === "string") {
     headers["If-Match"] = asEntityTag(ifMatch);
+  }
+  if (operation.idempotencyKey !== null) {
+    headers[IDEMPOTENCY_KEY_HEADER] = context.idempotencyKey as string;
   }
 
   let body: unknown;

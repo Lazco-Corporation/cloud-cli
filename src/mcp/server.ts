@@ -13,6 +13,7 @@ import { prepareRequest } from "../core/request/build";
 import { type ApiClient, requireJson } from "../core/request/client";
 import { type Clock, SYSTEM_CLOCK } from "../core/request/clock";
 import { DEFAULT_WAIT_SECONDS, executeOperation } from "../core/request/execute";
+import { newIdempotencyKey } from "../core/request/idempotency";
 import { readPage } from "../core/request/paginate";
 import type { InputValidator } from "../core/request/validate";
 import type { SpecSource } from "../core/spec/loader";
@@ -275,6 +276,8 @@ export class McpSession {
       const request = prepareRequest(operation, input, {
         apiUrl: this.options.client.apiUrl,
         validator: this.options.validator,
+        // A new key for each call, which the client keeps on every retry of it.
+        idempotencyKey: operation.idempotencyKey === null ? undefined : newIdempotencyKey(),
       });
       if (operation.body.mode === "upload") {
         return this.text(await this.runUploader(operation, request, input, extra), false);

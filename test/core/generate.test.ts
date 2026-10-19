@@ -114,6 +114,51 @@ describe("skips", () => {
   });
 });
 
+describe("the Idempotency-Key header", () => {
+  const { operations } = surfaceOf("surface");
+
+  test("a required header is read as required, and is no input field", () => {
+    const create = byCommand(operations, "compute create");
+    expect(create.idempotencyKey).toBe("required");
+    expect(JSON.stringify(create.inputSchema).toLowerCase()).not.toContain("idempotency");
+  });
+
+  test("an optional header is read as optional, and is no input field", () => {
+    const sshKeys = byCommand(operations, "ssh-keys create");
+    expect(sshKeys.idempotencyKey).toBe("optional");
+    expect(JSON.stringify(sshKeys.inputSchema).toLowerCase()).not.toContain("idempotency");
+  });
+
+  test("an operation that does not declare it has none", () => {
+    expect(byCommand(operations, "compute list").idempotencyKey).toBeNull();
+    expect(byCommand(operations, "compute delete").idempotencyKey).toBeNull();
+  });
+
+  test("the name is matched without case", () => {
+    const document = loadFixture("surface");
+    const parameter = document.paths["/v1/servers"]?.post?.parameters?.[0];
+    if (!parameter || "$ref" in parameter) throw new Error("fixture changed");
+    parameter.name = "idempotency-key";
+    const { operations: changed, skipped } = generateSurface(document, ajv);
+    expect(skipped).toEqual([]);
+    expect(byCommand(changed, "compute create").idempotencyKey).toBe("required");
+  });
+
+  test("another required header still skips its operation", () => {
+    const document = loadFixture("surface");
+    document.paths["/v1/servers"]?.post?.parameters?.push({
+      name: "X-Other",
+      in: "header",
+      required: true,
+      schema: { type: "string" },
+    });
+    const { skipped } = generateSurface(document, ajv);
+    expect(skipped.map((skip) => [skip.operationId, skip.reason])).toEqual([
+      ["compute.servers.create", "unsupported-parameter"],
+    ]);
+  });
+});
+
 describe("surface", () => {
   const { operations } = surfaceOf("surface");
 

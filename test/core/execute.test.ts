@@ -48,7 +48,11 @@ function setup() {
   ) =>
     executeOperation(
       operation(command),
-      prepareRequest(operation(command), input, { apiUrl: api.apiUrl, validator }),
+      prepareRequest(operation(command), input, {
+        apiUrl: api.apiUrl,
+        validator,
+        idempotencyKey: "key-1",
+      }),
       { client, clock },
       options,
     );

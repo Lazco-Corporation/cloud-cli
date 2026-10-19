@@ -44,7 +44,7 @@ An operation is also skipped, with one warning each, when:
 - `concurrency: etag` has no GET at the same path
 - `upload` names an uploader this version lacks
 - two operations share a command or a tool name, or a command is also a group of other commands
-- a `$ref` cannot be resolved, the body is not `application/json`, or a header or cookie parameter is required
+- a `$ref` cannot be resolved, the body is not `application/json`, or a header or cookie parameter other than `Idempotency-Key` is required
 
 ## The input object
 
@@ -62,7 +62,20 @@ Each operation has one input object, the same for its command and its tool.
 
 On the command line, path parameters are positional, scalars are kebab-case flags (`--region-slug`), an array of scalars repeats its flag, and anything nested goes through `--json`.
 A property given by a flag and by `--json` is an error.
-A command's input whose name is a global flag is reachable through `--json` only.
+A command's input whose name is a global flag, or the operation flag `--idempotency-key`, is reachable through `--json` only.
+
+## Idempotency-Key
+
+An operation that declares the header parameter `Idempotency-Key`, required or optional, gets it from the core, never from its input.
+Every `spend` operation declares it as required.
+
+- The core makes one random UUID v4 for each command run or tool call, and sends it on every retry of that run or call.
+- An operation with a required header takes the operation flag `--idempotency-key KEY` instead, so a script that runs a command again after a crash gets the first result.
+  A key outside 1 to 255 printable ASCII characters is `CLI_INVALID_INPUT` before any request.
+- The header is no field of `--describe`'s input schema or of a tool's `inputSchema`. `--describe` names it in `idempotencyKey`, as `required`, `optional` or `null`.
+- `--dry-run` prints the header with the key it would send.
+- An answer with `Idempotent-Replayed: true` writes a note with the key to stderr, and stdout is the same JSON as the first answer.
+- An uploader sends the operation's headers on its own start request. Its other requests, such as the Pages renewal and finalize, go to routes that declare no key, so the client sends each of them once and the uploader alone decides any retry.
 
 ## Uploaders
 

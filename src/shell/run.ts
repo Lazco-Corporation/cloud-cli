@@ -22,6 +22,7 @@ import {
   type Task,
 } from "../core/request/execute";
 import type { InputProblem } from "../core/request/guard";
+import { extractIdempotencyKeyFlag, newIdempotencyKey } from "../core/request/idempotency";
 import { nextPageFlag, readPage, walkPages } from "../core/request/paginate";
 import { RateLimiter } from "../core/request/rateLimiter";
 import { InputValidator } from "../core/request/validate";
@@ -162,6 +163,11 @@ class Shell {
       limiter: this.limiter,
       fetch: this.fetchImplementation,
       clock: this.clock,
+      onReplay: (key) =>
+        writeNotice(
+          this.io,
+          `note: this is the stored result of the first request with Idempotency-Key ${key}. Nothing ran again`,
+        ),
     });
   }
 
@@ -413,12 +419,16 @@ class Shell {
       );
       return;
     }
+    const keyFlag =
+      entry.source.type === "operation" && entry.source.operation.idempotencyKey === "required"
+        ? extractIdempotencyKeyFlag(tokens)
+        : { key: undefined, rest: [...tokens] };
     const payloadText = this.flags.json === "-" ? await readAll(this.io.stdin) : this.flags.json;
     const payload = payloadText === undefined ? undefined : parsePayload(payloadText);
     const input = buildInput({
       schema: entry.inputSchema,
       positionals: entry.positionals,
-      tokens,
+      tokens: keyFlag.rest,
       payload,
     });
     const output = { human: this.flags.human, fields: this.flags.fields, secrets: this.secrets() };
@@ -439,10 +449,14 @@ class Shell {
         [{ field: "page-all", message: "needs a paginated command" }],
       );
     }
+    // One key for the whole run, so every retry of it carries the same key.
+    const idempotencyKey =
+      operation.idempotencyKey === null ? undefined : (keyFlag.key ?? newIdempotencyKey());
     const prepare = (pageInput: Record<string, unknown>): ApiRequest =>
       prepareRequest(operation, pageInput, {
         apiUrl: session.apiUrl,
         validator: this.validator,
+        idempotencyKey,
       });
     checkBeforeConfirm(operation, input, prepare);
     if (operation.body.mode === "upload") {

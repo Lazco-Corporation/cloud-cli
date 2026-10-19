@@ -23,6 +23,8 @@ export function describeEntry(entry: CommandEntry): Record<string, unknown> {
     paginate: operation?.annotation.paginate ?? null,
     confirm: operation?.annotation.confirm ?? null,
     upload: operation?.annotation.upload ?? null,
+    // How the operation takes Idempotency-Key. The core sends it, so it is no input field.
+    idempotencyKey: operation?.idempotencyKey ?? null,
     feature: entry.feature,
     mcpTool: operation?.toolName ?? null,
     positionals: entry.positionals,

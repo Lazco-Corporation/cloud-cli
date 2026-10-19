@@ -1,13 +1,21 @@
 import type { Credential } from "../../credentials/credential";
 import { ApiError, CliError, redactSecrets, toToolError } from "../errors";
 import { type Clock, SYSTEM_CLOCK } from "./clock";
+import { isReplayed } from "./idempotency";
 import type { RateLimiter } from "./rateLimiter";
 
 export const REQUEST_TIMEOUT_MS = 60_000;
+/** Tries of a GET in all. */
 export const MAX_ATTEMPTS = 3;
+/** Tries in all of a request with `Idempotency-Key`. */
+export const MAX_KEYED_ATTEMPTS = 5;
 export const MAX_RETRY_AFTER_SECONDS = 60;
-const BACKOFF_BASE_MS = [500, 1000];
-const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+const GET_BACKOFF_MS = [500, 1000];
+const KEYED_BACKOFF_MS = [1000, 2000, 4000, 8000];
+const GET_RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+const GATEWAY_STATUSES = new Set([502, 503, 504]);
+/** The API's answer while the first request with the same key still runs. */
+const KEY_IN_PROGRESS = "IDEMPOTENCY_KEY_IN_PROGRESS";
 
 export type ApiRequest = {
   method: string;
@@ -40,10 +48,21 @@ export type ClientOptions = {
   clock?: Clock;
   random?: () => number;
   timeoutMs?: number;
+  /**
+   * Called with the key when the API answers a keyed request with the stored
+   * first result of that key (`Idempotent-Replayed: true`), success or error.
+   */
+  onReplay?: (idempotencyKey: string) => void;
 };
 
 /** A request with this header may be repeated safely, as a GET may. */
 const IDEMPOTENCY_HEADER = "idempotency-key";
+
+/**
+ * Which requests are sent again: a GET, and a request with `Idempotency-Key`,
+ * whose retry the API answers with the first result instead of running it again.
+ */
+type RetryPolicy = "get" | "keyed" | "once";
 
 export class ApiClient {
   readonly apiUrl: string;
@@ -107,12 +126,15 @@ export class ApiClient {
     try {
       const credential = request.authenticate === false ? undefined : this.options.credential;
       const bearer = await credential?.bearer();
-      const response = await this.sendWithRetries(request, bearer);
-      if (response.status !== 401 || credential === undefined || bearer === undefined) {
-        return response;
+      let response = await this.sendWithRetries(request, bearer);
+      if (response.status === 401 && credential !== undefined && bearer !== undefined) {
+        const renewed = await credential.renewAfterUnauthorized(bearer);
+        if (renewed !== undefined) {
+          response = await this.sendWithRetries(request, renewed);
+        }
       }
-      const renewed = await credential.renewAfterUnauthorized(bearer);
-      return renewed === undefined ? response : await this.sendWithRetries(request, renewed);
+      this.noticeReplay(request, response);
+      return response;
     } catch (error) {
       throw this.redact(toToolError(error));
     }
@@ -125,6 +147,18 @@ export class ApiClient {
       return response;
     }
     throw this.redact(mapErrorResponse(response));
+  }
+
+  private noticeReplay(request: ApiRequest, response: ApiResponse): void {
+    if (this.options.onReplay === undefined || !isReplayed(response.headers)) {
+      return;
+    }
+    const key = Object.entries(request.headers ?? {}).find(
+      ([name]) => name.toLowerCase() === IDEMPOTENCY_HEADER,
+    )?.[1];
+    if (key !== undefined) {
+      this.options.onReplay(key);
+    }
   }
 
   private redact<T>(error: T): T {
@@ -147,52 +181,58 @@ export class ApiClient {
     return error;
   }
 
-  private isRetryable(request: ApiRequest): boolean {
+  private retryPolicy(request: ApiRequest): RetryPolicy {
     if (request.method.toUpperCase() === "GET") {
-      return true;
+      return "get";
     }
-    return Object.keys(request.headers ?? {}).some(
+    const keyed = Object.keys(request.headers ?? {}).some(
       (name) => name.toLowerCase() === IDEMPOTENCY_HEADER,
     );
+    return keyed ? "keyed" : "once";
   }
 
   private async sendWithRetries(
     request: ApiRequest,
     bearer: string | undefined,
   ): Promise<ApiResponse> {
-    const retryable = this.isRetryable(request);
+    const policy = this.retryPolicy(request);
+    const maxAttempts =
+      policy === "get" ? MAX_ATTEMPTS : policy === "keyed" ? MAX_KEYED_ATTEMPTS : 1;
     for (let attempt = 1; ; attempt += 1) {
-      const lastAttempt = !retryable || attempt >= MAX_ATTEMPTS;
+      const lastAttempt = attempt >= maxAttempts;
       let response: ApiResponse;
       try {
         response = await this.sendOnce(request, bearer);
       } catch (error) {
+        // A timeout is never sent again: the request may still run, and the wait was already long.
         if (lastAttempt || !(error instanceof CliError) || error.code !== "CLI_NETWORK") {
           throw error;
         }
-        await this.clock.sleep(this.backoffMs(attempt));
+        await this.clock.sleep(this.backoffMs(policy, attempt));
         continue;
       }
-      if (lastAttempt || !RETRYABLE_STATUSES.has(response.status)) {
+      if (lastAttempt || !isRetryableAnswer(policy, response)) {
         return response;
       }
-      if (response.status === 429) {
-        const retryAfter = parseRetryAfter(response.headers.get("retry-after"), this.clock.now());
-        if (retryAfter !== undefined) {
-          if (retryAfter > MAX_RETRY_AFTER_SECONDS) {
-            return response;
-          }
-          await this.clock.sleep(retryAfter * 1000);
-          continue;
-        }
+      const retryAfter = parseRetryAfter(response.headers.get("retry-after"), this.clock.now());
+      if (retryAfter !== undefined && retryAfter > MAX_RETRY_AFTER_SECONDS) {
+        return response;
       }
-      await this.clock.sleep(this.backoffMs(attempt));
+      await this.clock.sleep(
+        retryAfter === undefined ? this.backoffMs(policy, attempt) : retryAfter * 1000,
+      );
     }
   }
 
-  /** About 0.5 s after the first try and 1 s after the second, with 25% jitter either way. */
-  private backoffMs(attempt: number): number {
-    const base = BACKOFF_BASE_MS[Math.min(attempt, BACKOFF_BASE_MS.length) - 1] ?? 1000;
+  /**
+   * A GET waits about 0.5 s, then 1 s, with 25% jitter either way. A keyed
+   * request waits 1, 2, 4, then 8 s.
+   */
+  private backoffMs(policy: RetryPolicy, attempt: number): number {
+    if (policy === "keyed") {
+      return KEYED_BACKOFF_MS[Math.min(attempt, KEYED_BACKOFF_MS.length) - 1] ?? 8000;
+    }
+    const base = GET_BACKOFF_MS[Math.min(attempt, GET_BACKOFF_MS.length) - 1] ?? 1000;
     return base * (0.75 + this.random() * 0.5);
   }
 
@@ -248,6 +288,43 @@ export class ApiClient {
   }
 }
 
+/**
+ * Whether an answer is worth the same request again. A keyed request is sent
+ * again only where the API cannot have stored an answer under the key: a 429,
+ * a 502, 503 or 504 from something in front of the API (not our error shape),
+ * and the key's first request still running.
+ */
+function isRetryableAnswer(policy: RetryPolicy, response: ApiResponse): boolean {
+  if (policy === "get") {
+    return GET_RETRYABLE_STATUSES.has(response.status);
+  }
+  if (policy === "once") {
+    return false;
+  }
+  if (response.status === 429) {
+    return true;
+  }
+  if (GATEWAY_STATUSES.has(response.status)) {
+    return !hasApiErrorShape(response.body);
+  }
+  return (
+    response.status === 409 &&
+    hasApiErrorShape(response.body) &&
+    response.body.code === KEY_IN_PROGRESS
+  );
+}
+
+/** JSON with a string `code`, the shape of every error the API itself answers. */
+function hasApiErrorShape(body: unknown): body is Record<string, unknown> & { code: string } {
+  return (
+    body !== null &&
+    typeof body === "object" &&
+    !Array.isArray(body) &&
+    !(body instanceof NotJson) &&
+    typeof (body as { code?: unknown }).code === "string"
+  );
+}
+
 /** The JSON of a body, `null` for an empty one, or a marker for a body that is not JSON. */
 function parseBody(response: Response, text: string): unknown {
   if (text.length === 0) {
@@ -293,19 +370,13 @@ export function requireJson(response: ApiResponse): unknown {
  */
 export function mapErrorResponse(response: ApiResponse): ApiError | CliError {
   const body = response.body;
-  if (
-    body === null ||
-    typeof body !== "object" ||
-    Array.isArray(body) ||
-    body instanceof NotJson ||
-    typeof (body as { code?: unknown }).code !== "string"
-  ) {
+  if (!hasApiErrorShape(body)) {
     return new CliError("CLI_BAD_RESPONSE", "The API answered with an unexpected body", {
       status: response.status,
       contentType: response.headers.get("content-type") ?? "",
     });
   }
-  const { code, error, message, ...fields } = body as Record<string, unknown>;
+  const { code, error, message, ...fields } = body;
   const text =
     typeof message === "string"
       ? message

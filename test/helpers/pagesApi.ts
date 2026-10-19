@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { OpenApiDocument } from "../../src/core/spec/types";
 import { loadFixture } from "./fixtures";
 
 export type PagesRequest = {
@@ -58,6 +59,8 @@ export type PagesApiState = {
   onRequest?: (request: PagesRequest) => void | Promise<void>;
   /** Answers an API request instead of the fake, when it returns a response. */
   answer?: (request: PagesRequest) => Response | undefined;
+  /** The spec to serve instead of the `pages` fixture. */
+  spec?: OpenApiDocument;
   /** The files of the live deployment, by path, so a redeploy uploads only changed files. */
   live: Map<string, string>;
   /** Every object written to storage, by path. */
@@ -201,7 +204,7 @@ export class PagesApi {
     const route = `${request.method} ${url.pathname}`;
     const sitePrefix = `/v1/labs/pages/sites/${this.state.site.id}`;
     if (route === "GET /v1/spec") {
-      return json(200, loadFixture("pages"), now);
+      return json(200, this.state.spec ?? loadFixture("pages"), now);
     }
     if (route === "GET /v1/whoami") {
       return json(
