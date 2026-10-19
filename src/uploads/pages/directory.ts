@@ -131,8 +131,18 @@ export async function resolveSiteDirectory(
 export async function walkSiteDirectory(root: string): Promise<WalkResult> {
   const files: SiteFile[] = [];
   const skipped: string[] = [];
+  const unreadable = (path: string, error: unknown) =>
+    invalid(`${path || "."} could not be read`, {
+      path: path || ".",
+      cause: error instanceof Error ? error.message : String(error),
+    });
   const visit = async (directory: string): Promise<void> => {
-    const names = (await readdir(directory)).sort();
+    let names: string[];
+    try {
+      names = (await readdir(directory)).sort();
+    } catch (error) {
+      throw unreadable(sitePath(root, directory), error);
+    }
     for (const name of names) {
       const absolutePath = nodePath.join(directory, name);
       const path = sitePath(root, absolutePath);
@@ -140,7 +150,12 @@ export async function walkSiteDirectory(root: string): Promise<WalkResult> {
         skipped.push(path);
         continue;
       }
-      const info = await lstat(absolutePath);
+      let info: Awaited<ReturnType<typeof lstat>>;
+      try {
+        info = await lstat(absolutePath);
+      } catch (error) {
+        throw unreadable(path, error);
+      }
       if (info.isSymbolicLink()) {
         throw invalid(`${path} is a link. A deploy never follows a link, so remove it first`, {
           path,

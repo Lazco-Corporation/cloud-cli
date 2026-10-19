@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CliError } from "../../src/core/errors";
@@ -104,6 +104,19 @@ describe("the walk", () => {
     const error = await failure(walkSiteDirectory(path.join(base, "site")));
     expect(error.code).toBe("CLI_INVALID_INPUT");
     expect(error.details).toEqual({ path: "pipe" });
+  });
+
+  test("a directory that cannot be read is CLI_INVALID_INPUT naming it", async () => {
+    await put("site/index.html");
+    await put("site/private/a.html");
+    await chmod(path.join(base, "site", "private"), 0o000);
+    try {
+      const error = await failure(walkSiteDirectory(path.join(base, "site")));
+      expect(error.code).toBe("CLI_INVALID_INPUT");
+      expect((error.details as { path: string }).path).toBe("private");
+    } finally {
+      await chmod(path.join(base, "site", "private"), 0o755);
+    }
   });
 
   test("a directory with no file left is refused", async () => {

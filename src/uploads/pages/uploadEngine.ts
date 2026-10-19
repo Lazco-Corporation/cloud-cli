@@ -106,8 +106,8 @@ export async function uploadFiles(
     options.uploads.map((upload) => [upload.path, { upload, generation: 0 }]),
   );
   const notStarted = new Set(options.uploads.map((upload) => upload.path));
-  /** Started uploads that storage refused with 403, which need a new URL. */
-  const refused = new Set<string>();
+  /** Started uploads that need a new URL: refused with 403, or about to be sent again late in the window. */
+  const needsUrl = new Set<string>();
   const fileOf = (path: string) => {
     const entry = options.files.get(path);
     if (!entry) {
@@ -142,14 +142,14 @@ export async function uploadFiles(
 
   /**
    * One renewal at a time, shared by everyone who needs it, of every upload
-   * not started and every refused one. A renewal with no answer or a 5xx is
+   * not started and every started one that needs a new URL. A renewal with no answer or a 5xx is
    * sent again while the window is open, because a repeat only moves the
    * window and signs the same paths again.
    */
   const renewShared = (): Promise<void> => {
     renewal ??= (async () => {
       try {
-        const paths = [...notStarted, ...[...refused].filter((path) => !notStarted.has(path))];
+        const paths = [...notStarted, ...[...needsUrl].filter((path) => !notStarted.has(path))];
         let fresh: SignedUpload[];
         for (let attempt = 0; ; attempt += 1) {
           try {
@@ -172,7 +172,7 @@ export async function uploadFiles(
           if (entry) {
             current.set(upload.path, { upload, generation: entry.generation + 1 });
           }
-          refused.delete(upload.path);
+          needsUrl.delete(upload.path);
         }
         if (options.window.needsRenewal()) {
           throw new CliError("CLI_BAD_RESPONSE", "The renewal did not move the upload window", {
@@ -196,6 +196,10 @@ export async function uploadFiles(
   };
 
   const putOnce = async (upload: SignedUpload, bytes: Uint8Array): Promise<PutOutcome> => {
+    // An abort that came before this point fires no listener, so look first.
+    if (stop.signal.aborted) {
+      throw new Interrupted();
+    }
     const controller = new AbortController();
     let timedOut = false;
     const timeout = setTimeout(() => {
@@ -229,6 +233,22 @@ export async function uploadFiles(
     }
   };
 
+  /** Waits until a renewal signs a new URL for a started path, on whichever renewal is in flight. */
+  const renewFor = async (path: string, generation: number): Promise<void> => {
+    needsUrl.add(path);
+    for (let waits = 0; current.get(path)?.generation === generation; waits += 1) {
+      if (stop.signal.aborted) {
+        throw new Interrupted();
+      }
+      if (waits >= 3) {
+        throw new CliError("CLI_BAD_RESPONSE", `The renewal sent no new URL for ${path}`, {
+          path,
+        });
+      }
+      await (renewal ?? renewShared());
+    }
+  };
+
   const putFile = async (path: string): Promise<void> => {
     const { file, sha256 } = fileOf(path);
     const bytes = await readSiteFile(file);
@@ -238,9 +258,14 @@ export async function uploadFiles(
     let retries = 0;
     let wasRefused = false;
     for (;;) {
-      // A PUT never starts with a URL that a renewal in flight is about to replace.
+      // A PUT never starts with a URL that a renewal in flight is about to replace,
+      // nor with one from a window with less than 10 minutes left.
       if (renewal) {
         await renewal;
+      }
+      const before = current.get(path) as { upload: SignedUpload; generation: number };
+      if (options.window.needsRenewal()) {
+        await renewFor(path, before.generation);
       }
       const entry = current.get(path) as { upload: SignedUpload; generation: number };
       const outcome = await putOnce(entry.upload, bytes);
@@ -260,20 +285,8 @@ export async function uploadFiles(
           );
         }
         // An expired URL, such as after the machine slept: one renewal, one more PUT.
-        // A renewal already in flight may not hold this path, so wait until one does.
         wasRefused = true;
-        refused.add(path);
-        for (let waits = 0; current.get(path)?.generation === entry.generation; waits += 1) {
-          if (stop.signal.aborted) {
-            throw new Interrupted();
-          }
-          if (waits >= 3) {
-            throw new CliError("CLI_BAD_RESPONSE", `The renewal sent no new URL for ${path}`, {
-              path,
-            });
-          }
-          await (renewal ?? renewShared());
-        }
+        await renewFor(path, entry.generation);
         continue;
       }
       const retryable = outcome.kind === "error" || outcome.status >= 500;

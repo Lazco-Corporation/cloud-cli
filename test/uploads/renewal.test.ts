@@ -3,6 +3,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ApiError, CliError } from "../../src/core/errors";
+import { Interrupted } from "../../src/uploads/interrupted";
 import { type Timer, uploadFiles } from "../../src/uploads/pages/uploadEngine";
 import { UploadWindow } from "../../src/uploads/pages/uploadWindow";
 import { fakeClock } from "../helpers/fakeApi";
@@ -299,6 +300,57 @@ describe("the renewal", () => {
     );
     expect(error).toEqual(expect.objectContaining({ status: 503 }));
     expect(calls).toBe(4);
+  });
+
+  test("a retry late in the window renews the started file first", async () => {
+    const files = await siteFiles(root, { "a.png": "a" });
+    const { window, renewals, renew } = setUp(files);
+    storage.handler = (put) => {
+      if (put.attempt === 1) {
+        clock.time += 52 * MINUTE;
+        return new Response(null, { status: 503 });
+      }
+      return new Response(null, { status: 200 });
+    };
+    await uploadFiles({
+      uploads: signedUploads(storage, files),
+      files,
+      lastExtensions: new Set(["html"]),
+      window,
+      renew,
+      fetch,
+      clock,
+      signal: new AbortController().signal,
+      timer: NEVER,
+    });
+    expect(renewals.map((renewal) => renewal.paths)).toEqual([["a.png"]]);
+    expect(storage.puts.map((put) => generationOf(put.url))).toEqual(["0", "1"]);
+  });
+
+  test("an interrupt while a renewal is in flight starts no other PUT", async () => {
+    const files = await siteFiles(root, { "a.png": "a", "b.png": "b" });
+    const { window, renew } = setUp(files);
+    storage.handler = (put) => new Response(null, { status: put.attempt === 1 ? 403 : 200 });
+    const controller = new AbortController();
+    const error = await failure(
+      uploadFiles({
+        uploads: signedUploads(storage, files),
+        files,
+        lastExtensions: new Set(["html"]),
+        window,
+        renew: async (paths) => {
+          controller.abort();
+          return renew(paths);
+        },
+        fetch,
+        clock,
+        signal: controller.signal,
+        concurrency: 1,
+        timer: NEVER,
+      }),
+    );
+    expect(error).toBeInstanceOf(Interrupted);
+    expect(storage.puts.map((put) => put.path)).toEqual(["a.png"]);
   });
 
   test("PAGES_UPLOAD_EXPIRED from the renewal ends the upload as that server error", async () => {

@@ -143,6 +143,19 @@ describe("the cancel", () => {
     expect(run.stderr).toContain("could not be cancelled");
   });
 
+  test("a deploy start whose answer is odd still cancels the deployment it names", async () => {
+    api.state.answer = (request) =>
+      request.method === "POST" && request.path.endsWith("/deployments")
+        ? new Response(JSON.stringify({ deployment: { id: "dep-7", status: "uploading" } }), {
+            status: 201,
+            headers: { "content-type": "application/json" },
+          })
+        : undefined;
+    const run = await deploy();
+    expect(run.error.code).toBe("CLI_BAD_RESPONSE");
+    expect(cancels()).toEqual(["POST /v1/labs/pages/sites/site-1/deployments/dep-7/cancel"]);
+  });
+
   test("a failure after finalize sends no cancel", async () => {
     api.state.afterFinalize = ["failed"];
     api.state.failure = "PAGES_UPLOAD_INCOMPLETE";

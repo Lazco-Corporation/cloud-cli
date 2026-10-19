@@ -171,7 +171,22 @@ export async function deployPagesSite(context: UploaderContext): Promise<Record<
     path: deploymentsPath,
     body: { files: manifest },
   });
-  const start = parseStart(requireJson(startResponse));
+  const startBody = requireJson(startResponse);
+  let start: DeployStart;
+  try {
+    start = parseStart(startBody);
+  } catch (error) {
+    // A deployment that started must not block the site for an hour, even when its answer is odd.
+    const startedId = (startBody as { deployment?: { id?: unknown } } | null)?.deployment?.id;
+    if (typeof startedId === "string" && startedId.length > 0) {
+      await cancelDeployment(
+        context,
+        `${deploymentsPath}/${encodeURIComponent(startedId)}`,
+        startedId,
+      );
+    }
+    throw error;
+  }
   const deploymentPath = `${deploymentsPath}/${encodeURIComponent(start.deployment.id)}`;
   let deployment = start.deployment;
   const byPath = new Map(files.map((file) => [file.path, file]));

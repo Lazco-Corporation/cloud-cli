@@ -446,7 +446,24 @@ class Shell {
       });
     checkBeforeConfirm(operation, input, prepare);
     if (operation.body.mode === "upload") {
-      await this.runUploader(operation, operation.body.uploader, prepare(input), input, output);
+      const confirmedUpload = this.flags.dryRun
+        ? input
+        : await confirmCommand(
+            {
+              command: entry.command,
+              kind: entry.kind,
+              confirmField: operation.annotation.confirm,
+            },
+            input,
+            { io: this.io, yes: this.flags.yes, flagOf: (property) => flagOf(entry, property) },
+          );
+      await this.runUploader(
+        operation,
+        operation.body.uploader,
+        prepare(confirmedUpload),
+        confirmedUpload,
+        output,
+      );
       return;
     }
     const credential = this.flags.dryRun ? undefined : await this.credential();
