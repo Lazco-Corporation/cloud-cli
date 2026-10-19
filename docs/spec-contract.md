@@ -11,7 +11,8 @@ The cache dir is `$XDG_CACHE_HOME`, `~/.cache` when unset, and `%LOCALAPPDATA%` 
 - A copy younger than 10 minutes is used with no request.
 - An older one is checked with `If-None-Match`, and a 304 keeps it.
 - A command name the copy lacks refreshes it once in the run.
-- A failed check with a copy warns once and uses the copy. With no copy, it is `CLI_SPEC_UNAVAILABLE`.
+- A failed check with a copy warns once and uses the copy.
+  With no copy, it is `CLI_SPEC_UNAVAILABLE`.
 - The file is written to a temporary name and renamed, so two processes never leave half a file.
 - The spec request carries no credential.
 
@@ -57,7 +58,8 @@ Each operation has one input object, the same for its command and its tool.
   A weak tag, or a value that is no entity tag, is `CLI_INVALID_INPUT`, because `If-Match` compares strongly.
   Without `ifMatch`, the CLI reads the ETag with `Accept-Encoding: identity`, because a proxy that compresses the answer makes the tag weak, and `If-Match` never matches a weak tag.
   A weak ETag from that read is `CLI_BAD_RESPONSE`, and nothing is written.
-- Local `$ref`s are resolved into the schema. A cyclic one stays in `$defs`.
+- Local `$ref`s are resolved into the schema.
+  A cyclic one stays in `$defs`.
 - A key that is no input is refused, unless the body schema sets `additionalProperties`.
 
 On the command line, path parameters are positional, scalars are kebab-case flags (`--region-slug`), an array of scalars repeats its flag, and anything nested goes through `--json`.
@@ -72,12 +74,16 @@ Every `spend` operation declares it as required.
 - The core makes one random UUID v4 for each command run or tool call, and sends it on every retry of that run or call.
 - An operation with a required header takes the operation flag `--idempotency-key KEY` instead, so a script that runs a command again after a crash gets the first result.
   A key outside 1 to 255 printable ASCII characters is `CLI_INVALID_INPUT` before any request.
-- The header is no field of `--describe`'s input schema or of a tool's `inputSchema`. `--describe` names it in `idempotencyKey`, as `required`, `optional` or `null`.
+- The header is no field of `--describe`'s input schema or of a tool's `inputSchema`.
+  `--describe` names it in `idempotencyKey`, as `required`, `optional` or `null`.
 - `--dry-run` prints the header with the key it would send.
-- When a run with a generated key ends with no final answer (`CLI_NETWORK`, `CLI_TIMEOUT`, `CLI_BAD_RESPONSE`, `IDEMPOTENCY_KEY_IN_PROGRESS` or a 429), stderr names the key, so the user can run the command again with `--idempotency-key` and get the first result.
+- When a run of an operation with a required header and a generated key ends with no final answer (`CLI_NETWORK`, `CLI_TIMEOUT`, `CLI_BAD_RESPONSE`, `IDEMPOTENCY_KEY_IN_PROGRESS` or a 429), stderr names the key, so the user can run the command again with `--idempotency-key` and get the first result.
 - An answer with `Idempotent-Replayed: true` writes a note with the key to stderr, and stdout is the same JSON as the first answer.
-- A key on stderr can reach a CI log. For 24 hours the key opens the stored answer for anyone who also holds a token of the organization, and an answer such as a reinstall's holds a password once. Keep such logs as private as the token.
-- An uploader sends the operation's headers on its own start request. Its other requests, such as the Pages renewal and finalize, go to routes that declare no key, so the client sends each of them once and the uploader alone decides any retry.
+- A key on stderr can reach a CI log.
+  For 24 hours the key opens the stored answer for anyone who also holds a token of the organization, and an answer such as a reinstall's holds a password once.
+  Keep such logs as private as the token.
+- An uploader sends the operation's headers on its own start request.
+  Its other requests, such as the Pages renewal and finalize, go to routes that declare no key, so the client sends each of them once and the uploader alone decides any retry.
 
 ## Uploaders
 
