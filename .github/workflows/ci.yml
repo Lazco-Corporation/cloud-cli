@@ -83,3 +83,6 @@ jobs:
           identity-id: ${{ vars.INFISICAL_CI_IDENTITY_ID }}
           required-keys: LAZCO_CONTRACT_TOKEN,LAZCO_CONTRACT_READ_TOKEN
       - run: bun run test:contract
+        env:
+          # The one contract test that spends runs on main only: see docs/testing.md.
+          LAZCO_CONTRACT_SPEND: ${{ github.ref == 'refs/heads/main' && '1' || '' }}
