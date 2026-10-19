@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
@@ -11,11 +12,12 @@ import { describeSkip, generateSurface } from "../core/generate/operations";
 import { prepareRequest } from "../core/request/build";
 import { type ApiClient, requireJson } from "../core/request/client";
 import { type Clock, SYSTEM_CLOCK } from "../core/request/clock";
-import { executeOperation } from "../core/request/execute";
+import { DEFAULT_WAIT_SECONDS, executeOperation } from "../core/request/execute";
 import { readPage } from "../core/request/paginate";
 import type { InputValidator } from "../core/request/validate";
 import type { SpecSource } from "../core/spec/loader";
 import type { OpenApiDocument } from "../core/spec/types";
+import { UPLOADERS } from "../uploads/registry";
 import {
   listedTools,
   type SessionFacts,
@@ -57,6 +59,17 @@ export type McpSessionOptions = {
   scheduler?: Scheduler;
   /** Called with the client's name and version once `initialize` names them. */
   onClient?: (client: { name: string; version: string }) => void;
+  /** The `fetch` an uploader PUTs files with, which never carries the credential. */
+  storageFetch?: typeof fetch;
+  homeDirectory?: string;
+};
+
+/** What a tool call may carry besides its arguments. */
+export type ToolCallExtra = {
+  /** Aborts when the client cancels the call. */
+  signal?: AbortSignal;
+  /** Sends one progress notification, when the call carried a progress token. */
+  progress?: (message: string) => void;
 };
 
 /** The organization, the scope and the features of a `whoami` answer. */
@@ -148,9 +161,29 @@ export class McpSession {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: listedTools(this.toolSet) as never,
     }));
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) =>
-      this.callTool(request.params.name, request.params.arguments ?? {}),
-    );
+    this.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+      const progressToken = request.params._meta?.progressToken;
+      let progress = 0;
+      return this.callTool(request.params.name, request.params.arguments ?? {}, {
+        signal: extra.signal,
+        progress:
+          progressToken === undefined
+            ? undefined
+            : (message) => {
+                progress += 1;
+                void extra
+                  .sendNotification({
+                    method: "notifications/progress",
+                    params: {
+                      progressToken,
+                      progress,
+                      message: redactSecrets(message, this.options.secrets()),
+                    },
+                  })
+                  .catch(() => {});
+              },
+      });
+    });
     this.server.oninitialized = () => {
       const client = this.server.getClientVersion();
       if (client) {
@@ -226,7 +259,11 @@ export class McpSession {
   }
 
   /** One tool call through the guard, the schema check and the request pipeline. */
-  async callTool(name: string, input: Record<string, unknown>): Promise<CallToolResult> {
+  async callTool(
+    name: string,
+    input: Record<string, unknown>,
+    extra: ToolCallExtra = {},
+  ): Promise<CallToolResult> {
     try {
       const tool = this.toolSet.tools.find((candidate) => candidate.name === name);
       if (!tool) {
@@ -239,6 +276,9 @@ export class McpSession {
         apiUrl: this.options.client.apiUrl,
         validator: this.options.validator,
       });
+      if (operation.body.mode === "upload") {
+        return this.text(await this.runUploader(operation, request, input, extra), false);
+      }
       const body = await executeOperation(
         operation,
         request,
@@ -258,6 +298,35 @@ export class McpSession {
     } catch (error) {
       return this.text({ error: toToolError(error).toBody() }, true);
     }
+  }
+
+  /** Runs an upload tool: an absolute local path only, and the wait for its result. */
+  private async runUploader(
+    operation: ToolSet["tools"][number]["operation"],
+    request: ReturnType<typeof prepareRequest>,
+    input: Record<string, unknown>,
+    extra: ToolCallExtra,
+  ): Promise<Record<string, unknown>> {
+    const name = operation.body.mode === "upload" ? operation.body.uploader : "";
+    const uploader = UPLOADERS.get(name);
+    if (!uploader) {
+      throw new CliError("CLI_INTERNAL", `This version has no code for the uploader ${name}`);
+    }
+    return uploader({
+      operation,
+      input,
+      request,
+      client: this.options.client,
+      dryRun: false,
+      timeoutSeconds: DEFAULT_WAIT_SECONDS,
+      clock: this.clock,
+      storageFetch: this.options.storageFetch ?? fetch,
+      signal: extra.signal ?? new AbortController().signal,
+      homeDirectory: this.options.homeDirectory ?? homedir(),
+      workingDirectory: process.cwd(),
+      requireAbsolutePaths: true,
+      progress: extra.progress ?? (() => {}),
+    });
   }
 
   private text(value: unknown, isError: boolean): CallToolResult {

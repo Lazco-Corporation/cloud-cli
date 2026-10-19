@@ -1,3 +1,4 @@
+import { KNOWN_UPLOADERS } from "../core/generate/annotation";
 import type { Operation } from "../core/generate/operations";
 import type { JsonSchema } from "../core/spec/types";
 
@@ -83,6 +84,9 @@ function describeTool(operation: Operation, taskTool: string | undefined): strin
     lines.push(
       `Set "${operation.annotation.confirm}" to the resource's own name, read from the resource first, to confirm.`,
     );
+  }
+  if (operation.annotation.upload !== undefined) {
+    lines.push(...(KNOWN_UPLOADERS.get(operation.annotation.upload)?.toolNotes ?? []));
   }
   if (operation.annotation.async === "task") {
     lines.push(

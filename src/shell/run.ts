@@ -31,6 +31,7 @@ import { type Keychain, osKeychain } from "../credentials/keychain";
 import { resolveSession, type Session, sessionCredential } from "../credentials/session";
 import { openInBrowser } from "../sso/browser";
 import { LOOPBACK_TIMEOUT_MS } from "../sso/loopback";
+import { UPLOADERS } from "../uploads/registry";
 import { confirmCommand } from "./confirm";
 import { describeEntry, summarizeEntry } from "./describe";
 import { type CommandEntry, handwrittenEntry, operationEntry } from "./entries";
@@ -53,7 +54,30 @@ export type RunOptions = {
   openBrowser?: (url: string) => Promise<boolean>;
   /** How long a browser sign-in waits for its redirect. */
   loopbackTimeoutMs?: number;
+  /**
+   * Calls the listener once on the next interrupt, such as Ctrl-C, and
+   * returns what stops listening. An uploader listens while it runs.
+   */
+  onInterrupt?: (listener: () => void) => () => void;
 };
+
+/** Ctrl-C or SIGTERM, once: a second one ends the process as usual. */
+function processInterrupts(listener: () => void): () => void {
+  const signals = ["SIGINT", "SIGTERM"] as const;
+  const once = () => {
+    stop();
+    listener();
+  };
+  const stop = () => {
+    for (const signal of signals) {
+      process.removeListener(signal, once);
+    }
+  };
+  for (const signal of signals) {
+    process.once(signal, once);
+  }
+  return stop;
+}
 
 /** Runs `lazco` with its arguments and returns the exit code: 0, or 1 on any error. */
 export async function runCli(
@@ -97,6 +121,7 @@ class Shell {
   private readonly paths: PathEnvironment;
   private readonly openBrowser: (url: string) => Promise<boolean>;
   private readonly loopbackTimeoutMs: number;
+  private readonly onInterrupt: (listener: () => void) => () => void;
   private sessionPromise: Promise<Session> | undefined;
   private credentialPromise: Promise<Credential> | undefined;
   private specSourcePromise: Promise<SpecSource> | undefined;
@@ -117,6 +142,7 @@ class Shell {
     this.paths = options.paths ?? currentPathEnvironment();
     this.openBrowser = options.openBrowser ?? ((url) => openInBrowser(url, this.paths.platform));
     this.loopbackTimeoutMs = options.loopbackTimeoutMs ?? LOOPBACK_TIMEOUT_MS;
+    this.onInterrupt = options.onInterrupt ?? processInterrupts;
     this.cacheDirectory = cacheRoot(this.paths);
     this.configPath = configFilePath(this.paths);
     this.ajv = createAjv();
@@ -419,6 +445,10 @@ class Shell {
         validator: this.validator,
       });
     checkBeforeConfirm(operation, input, prepare);
+    if (operation.body.mode === "upload") {
+      await this.runUploader(operation, operation.body.uploader, prepare(input), input, output);
+      return;
+    }
     const credential = this.flags.dryRun ? undefined : await this.credential();
     const client = this.client(session.apiUrl, credential);
     const confirmed = this.flags.dryRun
@@ -470,6 +500,47 @@ class Shell {
       onTask: (task) => writeNotice(this.io, describeTask(task)),
     });
     writeResult(this.io, Array.isArray(body) ? { list: body } : { record: body }, output);
+  }
+
+  /**
+   * Runs an operation's uploader. A dry run sends the reads the uploader
+   * needs to check its input, so it needs the credential too.
+   */
+  private async runUploader(
+    operation: Operation,
+    name: string,
+    request: ApiRequest,
+    input: Record<string, unknown>,
+    output: { human: boolean; fields: string[] | undefined; secrets: string[] },
+  ): Promise<void> {
+    const uploader = UPLOADERS.get(name);
+    if (!uploader) {
+      throw new CliError("CLI_INTERNAL", `This version has no code for the uploader ${name}`);
+    }
+    const session = await this.session();
+    const client = this.client(session.apiUrl, await this.credential());
+    const interrupt = new AbortController();
+    const stopListening = this.onInterrupt(() => interrupt.abort());
+    try {
+      const result = await uploader({
+        operation,
+        input,
+        request,
+        client,
+        dryRun: this.flags.dryRun,
+        timeoutSeconds: this.flags.timeoutSeconds,
+        clock: this.clock,
+        storageFetch: this.fetchImplementation ?? fetch,
+        signal: interrupt.signal,
+        homeDirectory: this.paths.home,
+        workingDirectory: process.cwd(),
+        requireAbsolutePaths: false,
+        progress: (message) => writeNotice(this.io, message),
+      });
+      writeResult(this.io, { record: result }, output);
+    } finally {
+      stopListening();
+    }
   }
 }
 

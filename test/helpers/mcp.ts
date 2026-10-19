@@ -50,7 +50,7 @@ export type ConnectedSession = {
 
 /** Starts a session against a fake API and connects an SDK client to it in memory. */
 export async function connectSession(
-  api: FakeApi,
+  api: Pick<FakeApi, "apiUrl">,
   options: { allowWrites?: boolean; cacheDirectory: string },
 ): Promise<ConnectedSession> {
   const limiter = new RateLimiter(SYSTEM_CLOCK);

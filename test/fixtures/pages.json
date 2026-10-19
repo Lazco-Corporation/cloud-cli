@@ -1,0 +1,168 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Fixture: the Pages deploy routes and their uploader", "version": "1.0.0" },
+  "paths": {
+    "/v1/labs/pages/deploy-rules": {
+      "get": {
+        "operationId": "labs.pages.deployRules.get",
+        "summary": "Read the deploy rules",
+        "x-lazco": {
+          "cli": "labs pages deploy-rules get",
+          "mcp": { "name": "labs_pages_get_deploy_rules" },
+          "kind": "read",
+          "feature": "pages"
+        }
+      }
+    },
+    "/v1/labs/pages/sites/{id}": {
+      "get": {
+        "operationId": "labs.pages.sites.get",
+        "summary": "Read a site",
+        "x-lazco": {
+          "cli": "labs pages sites get",
+          "mcp": { "name": "labs_pages_get_site" },
+          "kind": "read",
+          "feature": "pages"
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 64 }
+          }
+        ]
+      }
+    },
+    "/v1/labs/pages/sites/{id}/deployments": {
+      "post": {
+        "operationId": "labs.pages.deployments.create",
+        "summary": "Deploy a site",
+        "description": "Starts a deployment of the site from a manifest.",
+        "x-lazco": {
+          "cli": "labs pages deployments create",
+          "mcp": { "name": "labs_pages_create_deployment" },
+          "kind": "write",
+          "feature": "pages",
+          "upload": "pages-deployment"
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 64 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["files"],
+                "properties": {
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["path", "size", "sha256"],
+                      "properties": {
+                        "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                        "size": { "type": "integer", "minimum": 0 },
+                        "sha256": { "type": "string", "minLength": 64, "maxLength": 64 },
+                        "contentBase64": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/labs/pages/sites/{id}/deployments/{deploymentId}": {
+      "get": {
+        "operationId": "labs.pages.deployments.get",
+        "summary": "Read a deployment",
+        "x-lazco": {
+          "cli": "labs pages deployments get",
+          "mcp": { "name": "labs_pages_get_deployment" },
+          "kind": "read",
+          "feature": "pages"
+        },
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "deploymentId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ]
+      }
+    },
+    "/v1/labs/pages/sites/{id}/deployments/{deploymentId}/finalize": {
+      "post": {
+        "operationId": "labs.pages.deployments.finalize",
+        "summary": "Finalize a deployment",
+        "x-lazco": {
+          "cli": "labs pages deployments finalize",
+          "mcp": false,
+          "kind": "write",
+          "feature": "pages"
+        },
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "deploymentId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ]
+      }
+    },
+    "/v1/labs/pages/sites/{id}/deployments/{deploymentId}/cancel": {
+      "post": {
+        "operationId": "labs.pages.deployments.cancel",
+        "summary": "Cancel a deployment",
+        "x-lazco": {
+          "cli": "labs pages deployments cancel",
+          "mcp": { "name": "labs_pages_cancel_deployment" },
+          "kind": "write",
+          "feature": "pages"
+        },
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "deploymentId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ]
+      }
+    },
+    "/v1/labs/pages/sites/{id}/deployments/{deploymentId}/uploads": {
+      "post": {
+        "operationId": "labs.pages.uploads.renew",
+        "summary": "Renew upload URLs",
+        "x-lazco": {
+          "cli": "labs pages uploads renew",
+          "mcp": false,
+          "kind": "write",
+          "feature": "pages"
+        },
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "deploymentId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["paths"],
+                "properties": {
+                  "paths": {
+                    "type": "array",
+                    "maxItems": 20000,
+                    "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

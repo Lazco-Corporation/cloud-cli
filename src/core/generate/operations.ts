@@ -12,6 +12,7 @@ import {
   createAnnotationChecker,
   KNOWN_UPLOADERS,
   type OperationKind,
+  type UploaderInput,
 } from "./annotation";
 import { lookupPointer, resolveReferences, UnresolvableReferenceError } from "./refs";
 
@@ -26,12 +27,14 @@ export const BODY_INPUT = "body";
 /**
  * How the input object maps onto the body. `merged`: every input property that
  * is not a parameter is a body property. `wrapped`: the input property `body`
- * is the whole body. `none`: the operation takes no body.
+ * is the whole body. `none`: the operation takes no body. `upload`: the
+ * uploader of that name takes the input and builds the body itself.
  */
 export type BodyMapping =
   | { mode: "none" }
   | { mode: "merged"; required: boolean }
-  | { mode: "wrapped"; required: boolean };
+  | { mode: "wrapped"; required: boolean }
+  | { mode: "upload"; uploader: string };
 
 export type Operation = {
   operationId: string;
@@ -49,6 +52,8 @@ export type Operation = {
   inputSchema: JsonSchema;
   pathParameters: readonly string[];
   queryParameters: readonly string[];
+  /** The command's positional inputs: the path parameters, then an uploader's own. */
+  positionals: readonly string[];
   body: BodyMapping;
 };
 
@@ -189,7 +194,9 @@ function buildOperation(
       `the command word "${command[0]}" belongs to lazco itself`,
     );
   }
-  if (annotation.upload !== undefined && !KNOWN_UPLOADERS.has(annotation.upload)) {
+  const uploader =
+    annotation.upload === undefined ? undefined : KNOWN_UPLOADERS.get(annotation.upload);
+  if (annotation.upload !== undefined && uploader === undefined) {
     throw new SkipError("no-uploader", `this version has no uploader "${annotation.upload}"`);
   }
   if (annotation.concurrency === "etag" && !document.paths[path]?.get) {
@@ -257,7 +264,10 @@ function buildOperation(
     };
   }
 
-  const body = mergeBody(document, source, properties, required);
+  const body =
+    uploader === undefined
+      ? mergeBody(document, source, properties, required)
+      : addUploaderInput(annotation.upload as string, uploader, properties, required);
   let resolved: ReturnType<typeof resolveReferences>;
   try {
     resolved = resolveReferences(document, {
@@ -291,8 +301,32 @@ function buildOperation(
     inputSchema,
     pathParameters,
     queryParameters,
+    positionals: [...pathParameters, ...(uploader?.positionals ?? [])],
     body: body.mapping,
   };
+}
+
+/**
+ * Puts an uploader's input in place of the body: the uploader builds the body
+ * from it, so the body's own schema is never an input.
+ */
+function addUploaderInput(
+  name: string,
+  uploader: UploaderInput,
+  properties: Record<string, JsonSchema>,
+  required: string[],
+): { mapping: BodyMapping; additionalProperties: unknown } {
+  for (const [property, schema] of Object.entries(uploader.properties)) {
+    if (Object.hasOwn(properties, property)) {
+      throw new SkipError(
+        "unsupported-parameter",
+        `the parameter "${property}" clashes with an input of the uploader "${name}"`,
+      );
+    }
+    properties[property] = { ...schema };
+  }
+  required.push(...uploader.required);
+  return { mapping: { mode: "upload", uploader: name }, additionalProperties: false };
 }
 
 function collectParameters(

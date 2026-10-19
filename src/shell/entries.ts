@@ -25,7 +25,7 @@ export function operationEntry(operation: Operation): CommandEntry {
     kind: operation.kind,
     feature: operation.feature,
     inputSchema: operation.inputSchema,
-    positionals: operation.pathParameters,
+    positionals: operation.positionals,
     source: { type: "operation", operation },
   };
 }
