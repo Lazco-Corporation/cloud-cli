@@ -27,9 +27,12 @@ The MCP server runs steps 4, 5, 7 and 9 of the same code, so a command and its t
 
 - A request times out after 60 seconds with `CLI_TIMEOUT`, and is never sent again after that.
 - A GET is tried three times in all after a network error, 502, 503, 504 or 429, about 0.5 then 1 second apart with jitter.
-- A request with `Idempotency-Key` is tried five times in all, with the same key, 1, 2, 4 and 8 seconds apart. It is sent again after a network error, a 502, 503 or 504 whose body is not the API error shape, `409 IDEMPOTENCY_KEY_IN_PROGRESS` and a 429, and after no other answer. An answer with `Idempotent-Replayed: true` is the key's stored one and is never sent again.
+- A request with `Idempotency-Key` is tried five times in all, with the same key, 1, 2, 4 and 8 seconds apart.
+  It is sent again after a network error, a 502, 503 or 504 whose body is not the API error shape, `409 IDEMPOTENCY_KEY_IN_PROGRESS` and a 429, and after no other answer.
+  An answer with `Idempotent-Replayed: true` is the key's stored one and is never sent again.
 - Any other request is sent once.
-- `Retry-After` up to 60 seconds on an answer that is retried is waited for instead. A longer one returns the answer at once.
+- `Retry-After` up to 60 seconds on an answer that is retried is waited for instead.
+  A longer one returns the answer at once.
 - One request starts every 100 milliseconds per process, so no second holds more than 10.
 - A request with an SSO credential refreshes an access token that expires within 60 seconds first. A 401 to it refreshes once and sends the request once more.
 - An API error passes through with its status and every field. A body with both `error` and `message` keeps `message`, the specific one.

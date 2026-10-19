@@ -80,7 +80,7 @@ Every `spend` operation declares it as required.
 - When a run of an operation with a required header and a generated key ends with no final answer (`CLI_NETWORK`, `CLI_TIMEOUT`, `CLI_BAD_RESPONSE`, `IDEMPOTENCY_KEY_IN_PROGRESS` or a 429), stderr names the key, so the user can run the command again with `--idempotency-key` and get the first result.
 - An answer with `Idempotent-Replayed: true` writes a note with the key to stderr, and stdout is the same JSON as the first answer.
 - A key on stderr can reach a CI log.
-  For 24 hours the key opens the stored answer for anyone who also holds a token of the organization, and an answer such as a reinstall's holds a password once.
+  For 24 hours the key opens the stored answer for anyone who also holds a token of the organization, and an answer such as a rebuild's holds a password once.
   Keep such logs as private as the token.
 - An uploader sends the operation's headers on its own start request.
   Its other requests, such as the Pages renewal and finalize, go to routes that declare no key, so the client sends each of them once and the uploader alone decides any retry.
