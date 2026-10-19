@@ -191,7 +191,7 @@ export async function deployPagesSite(context: UploaderContext): Promise<Record<
       0,
     );
     context.progress(
-      `uploading ${start.uploads.length} files (${mebibytes(uploadBytes)}), ${files.length - start.uploads.length} unchanged`,
+      `uploading ${start.uploads.length} files (${mebibytes(uploadBytes)}) to the deployment ${deployment.id}, ${files.length - start.uploads.length} unchanged`,
     );
     const uploadProgress = throttled(context);
     const uploaded = await uploadFiles({
