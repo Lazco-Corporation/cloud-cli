@@ -247,6 +247,14 @@ export async function deployPagesSite(context: UploaderContext): Promise<Record<
     throw error;
   }
 
+  let shownStatus = "";
+  const showStatus = (current: Deployment) => {
+    if (current.status !== shownStatus) {
+      shownStatus = current.status;
+      context.progress(`the deployment ${current.id} is ${current.status}`);
+    }
+  };
+  showStatus(deployment);
   try {
     deployment = await waitForDeployment({
       client,
@@ -255,7 +263,7 @@ export async function deployPagesSite(context: UploaderContext): Promise<Record<
       clock: context.clock,
       timeoutSeconds: context.timeoutSeconds,
       signal,
-      onStatus: (current) => context.progress(`the deployment ${current.id} is ${current.status}`),
+      onStatus: showStatus,
     });
   } catch (error) {
     if (error instanceof Interrupted || signal.aborted) {
@@ -267,7 +275,7 @@ export async function deployPagesSite(context: UploaderContext): Promise<Record<
     }
     throw error;
   }
-  context.progress(`the deployment ${deployment.id} is ${deployment.status}`);
+  showStatus(deployment);
   return {
     deployment,
     site: { id: site.id, hostname: site.hostname, url: `https://${site.hostname}/` },
