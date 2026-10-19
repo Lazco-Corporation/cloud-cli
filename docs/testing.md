@@ -13,6 +13,7 @@
 
 They use `bun test`.
 The spec fixtures in `test/fixtures/` cover every `x-lazco` case: `test/fixtures/surface.json` holds the operations the generator keeps, and `test/fixtures/skips.json` the ones it skips.
+`test/fixtures/pages.json` holds the Pages deploy routes, and `test/helpers/pagesApi.ts` serves them with a fake storage for the signed PUTs, so a test runs the uploader end to end. `test/helpers/fakeStorage.ts` is a storage endpoint alone, for the upload engine.
 `test/helpers/fakeApi.ts` is an API on `127.0.0.1` that records every request.
 `test/helpers/fixtureApi.ts` serves the `surface` fixture as its spec and answers its operations, and a test may change its features, scope, spec or ETag while it runs.
 `test/helpers/fakeProvider.ts` is the OpenID provider of the SSO sign-in on `127.0.0.1`: discovery, the authorize redirect with a fake browser, the code, device and refresh grants with rotation, revocation and `whoami`. A test sets what the browser does, the answers of the device grant, the token lifetime and a delay of the refresh answer.

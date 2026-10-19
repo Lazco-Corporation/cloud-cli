@@ -32,7 +32,7 @@ The MCP server checks by ETag every 5 minutes, whatever the age of its copy.
 | `concurrency` | `etag` | Adds the input `ifMatch`, sent as `If-Match` |
 | `confirm` | a body property | The field that must hold the resource's own name |
 | `paginate` | `cursor`, `page` | A list over pages |
-| `upload` | an uploader name | Needs an uploader this version has |
+| `upload` | an uploader name | The uploader of that name runs the operation, see "Uploaders". A name this version lacks skips it |
 
 A key the schema does not list is ignored, so a later key such as `quote` never breaks this version.
 A known key with an unknown value skips the operation with one warning, because a guess could skip a confirmation or a precondition.
@@ -63,6 +63,33 @@ Each operation has one input object, the same for its command and its tool.
 On the command line, path parameters are positional, scalars are kebab-case flags (`--region-slug`), an array of scalars repeats its flag, and anything nested goes through `--json`.
 A property given by a flag and by `--json` is an error.
 A command's input whose name is a global flag is reachable through `--json` only.
+
+## Uploaders
+
+An uploader is hand-written behavior on a generated command, for an operation that is more than one request.
+`KNOWN_UPLOADERS` in `src/core/generate/annotation.ts` names each one and the input it takes, and `UPLOADERS` in `src/uploads/registry.ts` holds its code.
+The command path, the tool name, `kind` and `feature` still come from `x-lazco`.
+
+- The uploader's input replaces the body in the input object, so `--describe`, `--json` and the tool's `inputSchema` show it and never the body.
+- Its positionals follow the path parameters on the command line.
+- The tool's description gains the uploader's notes.
+- `--dry-run` runs the uploader's reads and checks, and sends no write.
+- An MCP tool takes an absolute local path only, because the working directory of a stdio server is the client's choice.
+
+`pages-deployment` (`src/uploads/pagesDeployment.ts` and `src/uploads/pages/`) publishes a local directory to a Pages site:
+
+1. It refuses a missing path, a file, a zip archive, the home directory and a filesystem root before any request.
+2. It reads `GET .../pages/deploy-rules` and the site. The limits and the extension lists come only from that answer, and the site must be `active`.
+3. It walks the directory, skips every segment that starts with `.` or is `__MACOSX` or `node_modules`, refuses a link or a special file, and checks the four limits from the sizes alone.
+4. It hashes every file with SHA-256 and sends the bytes of each file whose extension is in `contentExtensions` in `contentBase64`.
+5. It PUTs every upload the start lists, with exactly its headers, 8 at a time, every file whose extension is not in `lastExtensions` first. Each file is hashed again right before its PUT. A network error, a timeout or a 5xx is tried 3 more times.
+6. The upload window ends at `uploadExpiresAt`, read against the answer's `Date` header. With less than 10 minutes left, it renews the URLs of the uploads not started through `POST .../uploads`, and a 403 gets one renewal and one more PUT.
+7. It finalizes, and reads the deployment every 5 seconds until it is `live` or `superseded`. `failed`, `abandoned` and `cancelled` are `CLI_TASK_FAILED`, and `--timeout` is `CLI_TIMEOUT`.
+
+An error or an interrupt before finalize cancels the deployment once, and the first error stays the error.
+An interrupt before the start is `CLI_TASK_FAILED` with nothing changed, during the upload `CLI_TASK_FAILED` with the deployment cancelled, and during the wait `CLI_TIMEOUT` with the deployment going on.
+Each of these errors carries `details.interrupted`.
+A second Ctrl-C ends the process at once.
 
 ## Pagination
 
