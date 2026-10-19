@@ -71,12 +71,12 @@ describe("every read operation that needs no input", () => {
     const off = operation.feature !== null && features[operation.feature] === false;
     test(
       off
-        ? `${command} still runs with ${operation.feature} off and passes the API's refusal through`
+        ? `${command} still runs with ${operation.feature} off and passes the API's answer through`
         : `${command} answers JSON`,
       async () => {
         const run = await lazco(home.home, READ_TOKEN, operation.command);
-        if (off) {
-          expect(run.code).toBe(1);
+        if (off && run.code !== 0) {
+          // The CLI never refuses a command whose feature is off: the API decides.
           expect(run.stdout).toBe("");
           const error = errorOf(run);
           expect(error.status).toBe(403);

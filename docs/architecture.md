@@ -16,6 +16,7 @@ The hand-written part is the shell around it: sign-in, profiles, output, and the
 7. `src/core/request/build.ts` runs the path guard (`src/core/request/guard.ts`) and the JSON Schema check (`src/core/request/validate.ts`, Ajv), then splits the input into path, query, `If-Match` and body.
 8. `src/shell/confirm.ts` asks for a `destructive` or `spend` command, or needs `--yes`.
 9. `src/core/request/execute.ts` sends it through `src/core/request/client.ts`, reads the ETag first for `concurrency: etag`, and waits for an `async: task` operation.
+   An operation with `upload` goes to its uploader in `src/uploads/` instead, which sends its own requests through the same client, see "Uploaders" in `docs/spec-contract.md`.
 10. `src/shell/output.ts` writes the answer to stdout, or the error to stderr.
 
 The MCP server runs steps 4, 5, 7 and 9 of the same code, so a command and its tool cannot drift apart.
@@ -53,6 +54,7 @@ The exit code is 0, or 1 on any error.
 - Before it reads any MCP message, it reads `GET /v1/whoami` and the spec, because the instructions of `initialize` need both. With no credential it exits with `CLI_NOT_LOGGED_IN` and writes nothing to stdout.
 - It declares `tools` with `listChanged` only: no resources and no prompts.
 - `src/mcp/tools.ts` picks the tools by tier: `read` always, `write` and confirmed `destructive` with `--allow-writes` on a token that can write, never `spend`, and none whose feature is off. The annotations come from `kind` and the method.
+- An upload tool runs its uploader to the end, and sends `notifications/progress` when the call carries a progress token. A cancel of the call is an interrupt.
 - A tool call returns one `text` item with the JSON answer, or `isError` with the error object. An async tool returns `{ "accepted": <202 body>, "taskTool": "tasks_get" }` at once. A paginated tool returns one page as the API sent it.
 - Every 5 minutes while a client is connected, it checks the spec by ETag and reads `whoami` again, and sends `notifications/tools/list_changed` only when the listed tools changed.
 - The `User-Agent` is `lazco-cli/<version> (mcp)` until `initialize` names the client, then `lazco-cli/<version> (mcp; <client>/<version>)`.

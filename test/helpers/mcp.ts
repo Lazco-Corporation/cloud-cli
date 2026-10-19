@@ -3,7 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createAjv } from "../../src/core/request/ajv";
 import { ApiClient } from "../../src/core/request/client";
-import { SYSTEM_CLOCK } from "../../src/core/request/clock";
+import { type Clock, SYSTEM_CLOCK } from "../../src/core/request/clock";
 import { RateLimiter } from "../../src/core/request/rateLimiter";
 import { InputValidator } from "../../src/core/request/validate";
 import { SpecSource } from "../../src/core/spec/loader";
@@ -50,8 +50,8 @@ export type ConnectedSession = {
 
 /** Starts a session against a fake API and connects an SDK client to it in memory. */
 export async function connectSession(
-  api: FakeApi,
-  options: { allowWrites?: boolean; cacheDirectory: string },
+  api: Pick<FakeApi, "apiUrl">,
+  options: { allowWrites?: boolean; cacheDirectory: string; clock?: Clock },
 ): Promise<ConnectedSession> {
   const limiter = new RateLimiter(SYSTEM_CLOCK);
   const ajv = createAjv();
@@ -76,6 +76,7 @@ export async function connectSession(
     validator: new InputValidator(ajv),
     warn: (message) => warnings.push(message),
     scheduler,
+    clock: options.clock,
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await session.connect(serverTransport);

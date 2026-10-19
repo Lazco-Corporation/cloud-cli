@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeConfig } from "../../src/config/configFile";
 import { type CliRun, cliEnv, FAKE_TOKEN, makeHome, runInProcess } from "../helpers/cli";
-import { FakeApi, json } from "../helpers/fakeApi";
+import { FakeApi, fakeClock, json } from "../helpers/fakeApi";
 import { fixtureApi } from "../helpers/fixtureApi";
 import { accountOf, brokenKeychain, memoryKeychain } from "../helpers/keychain";
+import { connectSession } from "../helpers/mcp";
+import { PagesApi } from "../helpers/pagesApi";
 
 const KEYCHAIN_TOKEN = `lz_live_${"0".repeat(48)}beefbeef12345678`;
 const FILE_TOKEN = `lz_live_${"0".repeat(48)}f11ef11e87654321`;
@@ -250,4 +252,132 @@ describe("no credential is ever shown", () => {
       }
     }
   }, 120_000);
+});
+
+describe("no credential is shown by a Pages deploy", () => {
+  test("a deploy, a dry run, and every error path that echoes the credential", async () => {
+    const pagesHome = await makeHome();
+    const site = join(pagesHome.home, "site");
+    await mkdir(join(site, "css"), { recursive: true });
+    await writeFile(join(site, "index.html"), "<p>hi</p>");
+    await writeFile(join(site, "css", "site.css"), "p{}");
+    const api = new PagesApi();
+    const echo = (status: number, sent: string) =>
+      json(status, {
+        error: `rejected ${sent}`,
+        code: "ECHO",
+        details: `the header was ${sent}`,
+        [sent]: sent,
+      });
+    const runs: CliRun[] = [];
+    const deploy = async (...extra: string[]) => {
+      const result = await runInProcess(
+        [
+          "--api-url",
+          api.apiUrl,
+          "labs",
+          "pages",
+          "deployments",
+          "create",
+          "site-1",
+          site,
+          ...extra,
+        ],
+        {
+          env: cliEnv(pagesHome.home, { LAZCO_TOKEN: FAKE_TOKEN, NO_COLOR: "1" }),
+          clock: fakeClock(Date.now()),
+        },
+      );
+      runs.push(result);
+      return result;
+    };
+    try {
+      api.state.afterFinalize = ["live"];
+      expect((await deploy()).code).toBe(0);
+      expect((await deploy("--dry-run")).code).toBe(0);
+      expect((await deploy("--human")).code).toBe(0);
+      const failingRequests = [
+        "GET /deploy-rules",
+        "GET /sites/site-1",
+        "POST /deployments",
+        "POST /finalize",
+        "POST /cancel",
+      ];
+      for (const failing of failingRequests) {
+        const [method, suffix] = failing.split(" ") as [string, string];
+        api.state.live = new Map();
+        api.state.answer = (request) =>
+          request.method === method && request.path.endsWith(suffix)
+            ? echo(400, request.headers.authorization ?? "none")
+            : undefined;
+        // The cancel follows a storage refusal, whose code echoes the credential too.
+        api.state.storage =
+          failing === "POST /cancel"
+            ? () => new Response(`<Error><Code>${FAKE_TOKEN}</Code></Error>`, { status: 400 })
+            : undefined;
+        expect((await deploy()).code).toBe(1);
+      }
+      expect(api.requests.some((request) => request.headers.authorization)).toBe(true);
+      expect(
+        api.requests
+          .filter((request) => request.method === "PUT")
+          .some((request) => request.headers.authorization),
+      ).toBe(false);
+      expect(runs.some((result) => result.stderr.includes("[REDACTED]"))).toBe(true);
+      for (const result of runs) {
+        for (const text of [result.stdout, result.stderr]) {
+          expect(text.includes(FAKE_TOKEN) || text.includes(FAKE_TOKEN.slice(-8))).toBe(false);
+        }
+      }
+    } finally {
+      api.stop();
+      await pagesHome.cleanup();
+    }
+  }, 60_000);
+});
+
+describe("no credential is shown by the MCP deploy tool", () => {
+  test("its result and its progress, when the API and the storage echo the credential", async () => {
+    const pagesHome = await makeHome();
+    const site = join(pagesHome.home, "site");
+    await mkdir(site, { recursive: true });
+    await writeFile(join(site, "index.html"), "<p>hi</p>");
+    await writeFile(join(site, "logo.png"), "png");
+    const api = new PagesApi();
+    // The storage refuses with the credential in its code, and the cancel echoes the header.
+    api.state.storage = () =>
+      new Response(`<Error><Code>${FAKE_TOKEN}</Code></Error>`, { status: 400 });
+    api.state.answer = (request) =>
+      request.path.endsWith("/cancel")
+        ? json(500, {
+            error: `rejected ${request.headers.authorization}`,
+            code: "ECHO",
+            [request.headers.authorization ?? "none"]: "x",
+          })
+        : undefined;
+    const session = await connectSession(api, {
+      allowWrites: true,
+      cacheDirectory: pagesHome.cache,
+      clock: fakeClock(Date.now()),
+    });
+    try {
+      const progress: string[] = [];
+      const result = await session.client.callTool(
+        { name: "labs_pages_create_deployment", arguments: { id: "site-1", directory: site } },
+        undefined,
+        { onprogress: (update) => progress.push(update.message ?? "") },
+      );
+      expect(result.isError).toBe(true);
+      expect(api.requests.some((request) => request.path.endsWith("/cancel"))).toBe(true);
+      const shown = [JSON.stringify(result), ...progress];
+      expect(shown.join("\n")).toContain("[REDACTED]");
+      for (const text of shown) {
+        expect(text.includes(FAKE_TOKEN) || text.includes(FAKE_TOKEN.slice(-8))).toBe(false);
+      }
+    } finally {
+      await session.close();
+      api.stop();
+      await pagesHome.cleanup();
+    }
+  });
 });

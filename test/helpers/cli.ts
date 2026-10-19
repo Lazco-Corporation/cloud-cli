@@ -124,6 +124,7 @@ export async function runInProcess(
     clock?: Clock;
     openBrowser?: (url: string) => Promise<boolean>;
     loopbackTimeoutMs?: number;
+    onInterrupt?: (listener: () => void) => () => void;
   },
 ): Promise<CliRun> {
   let stdout = "";
@@ -143,6 +144,8 @@ export async function runInProcess(
     // A test never opens a real browser.
     openBrowser: options.openBrowser ?? (async () => false),
     loopbackTimeoutMs: options.loopbackTimeoutMs,
+    // A test never listens for the real Ctrl-C.
+    onInterrupt: options.onInterrupt ?? (() => () => {}),
     paths: {
       env: options.env,
       platform: options.platform ?? process.platform,

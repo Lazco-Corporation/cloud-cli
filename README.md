@@ -97,6 +97,20 @@ lazco compute create --json - < server.json --dry-run
 - A command that deletes or spends asks first on a terminal. `--yes` confirms without asking, and a command that needs the resource's name still needs it in its field.
 - A task such as a deploy is waited for. `--no-wait` prints the accepted task at once.
 
+### Publish a Lazco Pages site
+
+```sh
+lazco labs pages deployments create <site-id> ./dist
+lazco labs pages deployments create <site-id> ./dist --dry-run
+```
+
+The directory is the site's root, and every file in it becomes public.
+Paths with a segment that starts with a dot, `__MACOSX` and `node_modules` are skipped, so a `.env` next to a build is never published.
+A link, a zip archive or a single file is refused: unpack an archive first.
+The command checks the API's limits before it sends anything, uploads only the files that changed since the live deploy, and waits until the deployment is live, for 600 seconds or `--timeout`.
+A failed or interrupted upload cancels the deployment, so the next deploy can start at once.
+`--dry-run` reads the limits and the site, and prints the manifest it would send.
+
 ## Use it from an MCP client
 
 `lazco mcp` is a local MCP server with the same sign-in, and it renews an SSO sign-in as it runs.

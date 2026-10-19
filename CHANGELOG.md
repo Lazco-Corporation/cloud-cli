@@ -14,5 +14,6 @@ The newest release is at the top.
 - `lazco auth status`, and `lazco auth logout`, which revokes an SSO sign-in.
 - An SSO sign-in refreshes its access token by itself, and two processes of one profile share one refresh.
 - `lazco profile list` and `profile use`.
+- `lazco labs pages deployments create <site> <directory>` and the MCP tool `labs_pages_create_deployment` publish a local directory to a Lazco Pages site, upload only the changed files, and wait until the site is live.
 - `lazco mcp`, a local MCP server over stdio, and `lazco mcp install` for eight MCP clients.
 - Binaries for macOS, Linux and Windows on the GitHub release, and `scripts/install.sh`.

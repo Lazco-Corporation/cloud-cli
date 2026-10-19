@@ -2,14 +2,16 @@
  * Runs the MCP evaluation set through `pi` and grades each task.
  *
  *   bun eval/mcp/run.ts --tier read [--profile staging] [--model <model>] [--concurrency 4] [--only id,id]
+ *     [--pages-site <name>]
  *
  * Before a run, `lazco mcp install --client pi --profile <profile>` must have
  * written the `lazco` entry of `~/.pi/agent/mcp.json`, with `--allow-writes`
  * for the `write` tier. The proofs, setups and cleanups run the built CLI
  * (`bun run build`) with the same profile. The summary goes to stdout as JSON.
+ * A Pages task needs an active Pages site of that name in the organization.
  */
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -22,7 +24,7 @@ type Task = {
   tools: string[];
   proof?: { command: string[]; expect?: Expression; check?: Expression; list?: boolean };
   answer?: string[];
-  setup?: { createSshKey?: string; createProject?: string };
+  setup?: { createSshKey?: string; createProject?: string; writeSite?: boolean };
   cleanup?: { sshKeysNamed?: string[]; projectsNamed?: string[] };
 };
 
@@ -34,6 +36,7 @@ const { values } = parseArgs({
     thinking: { type: "string", default: "low" },
     concurrency: { type: "string", default: "4" },
     only: { type: "string" },
+    "pages-site": { type: "string", default: "cli-eval" },
   },
 });
 if (values.tier !== "read" && values.tier !== "write") {
@@ -104,6 +107,35 @@ async function namedIds(command: string[], names: readonly string[]): Promise<st
   return (out?.data ?? []).filter((item) => names.includes(item.name)).map((item) => item.id);
 }
 
+let pagesSiteId: Promise<string> | undefined;
+
+/** The id of the Pages site the Pages tasks deploy to, read once. */
+function pagesSite(): Promise<string> {
+  pagesSiteId ??= (async () => {
+    const run = await lazco(["labs", "pages", "sites", "list"]);
+    const out = output(["labs", "pages", "sites", "list"], run.stdout) as {
+      data?: Array<{ id: string; name: string; status: string }>;
+    };
+    const site = out?.data?.find((item) => item.name === values["pages-site"]);
+    if (site?.status !== "active") {
+      throw new Error(`no active Pages site named ${values["pages-site"]}`);
+    }
+    return site.id;
+  })();
+  return pagesSiteId;
+}
+
+/** A small site whose page names the run, so a deploy of it can be told apart. */
+async function writeSite(directory: string, run: string): Promise<void> {
+  await mkdir(join(directory, "css"), { recursive: true });
+  await writeFile(
+    join(directory, "index.html"),
+    `<!doctype html><link rel="stylesheet" href="css/site.css"><h1>eval-${run}</h1>\n`,
+  );
+  await writeFile(join(directory, "css", "site.css"), "h1 { color: #0a7; }\n");
+  await writeFile(join(directory, ".env"), "NOT_PUBLIC=1\n");
+}
+
 async function cleanup(task: Task): Promise<void> {
   for (const id of await namedIds(["ssh-keys", "list"], task.cleanup?.sshKeysNamed ?? [])) {
     await lazco(["ssh-keys", "delete", id]);
@@ -156,11 +188,23 @@ async function runTask(task: Task, index: number) {
   const run = `${runSuffix}${index}`;
   const fill = (text: string) => text.replaceAll("{run}", run);
   const key = sshPublicKey(`eval-${run}`);
-  const filled: Task = JSON.parse(fill(JSON.stringify(task)));
-  filled.prompt = filled.prompt.replaceAll("{key}", key);
   const problems: string[] = [];
   const workdir = await mkdtemp(join(tmpdir(), "lazco-eval-"));
+  const siteDirectory = join(workdir, "site");
+  const usesPages = JSON.stringify(task).includes("{pagesSite");
+  let filled: Task = task;
   try {
+    const pagesSiteValue = usesPages ? await pagesSite() : "";
+    filled = JSON.parse(
+      fill(JSON.stringify(task))
+        .replaceAll("{pagesSiteId}", pagesSiteValue)
+        .replaceAll("{pagesSite}", values["pages-site"] as string)
+        .replaceAll("{siteDir}", siteDirectory),
+    );
+    filled.prompt = filled.prompt.replaceAll("{key}", key);
+    if (filled.setup?.writeSite) {
+      await writeSite(siteDirectory, run);
+    }
     if (filled.setup?.createSshKey) {
       const made = await lazco([
         "ssh-keys",

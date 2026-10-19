@@ -6,8 +6,9 @@
 # Each task has:
 #   id       a stable name
 #   tier     `read`: lazco mcp. `write`: lazco mcp --allow-writes
-#   prompt   what a user would ask. `{run}` is a suffix unique to the run, and
-#            `{key}` a fresh OpenSSH public key
+#   prompt   what a user would ask. `{run}` is a suffix unique to the run,
+#            `{key}` a fresh OpenSSH public key, `{pagesSite}` the name of the
+#            Pages site of `--pages-site` and `{pagesSiteId}` its id
 #   tools    the tools a good run calls. A run passes only when it calls at
 #            least one of them. An empty list means a good run calls no tool
 #            that changes anything.
@@ -19,7 +20,8 @@
 #                      nested list is a choice: any one of its texts is enough
 #              check   a JavaScript expression of `out` that must be true
 #   answer   regular expressions, without case, that the answer must match
-#   setup    what the runner makes first: createSshKey or createProject, by name
+#   setup    what the runner makes first: createSshKey or createProject, by name,
+#            or writeSite, a small site in `{siteDir}`, an absolute path
 #   cleanup  what the runner deletes after: sshKeysNamed or projectsNamed
 
 tasks:
@@ -322,3 +324,34 @@ tasks:
       check: "out.data.some((project) => project.name === 'eval-keep-{run}')"
     answer: ["cannot|can't|unable|not able|no tool|isn't available|is not available|not available|panel|dashboard|cli"]
     cleanup: { projectsNamed: ["eval-keep-{run}"] }
+
+  - id: pages-deploy-rules-file
+    tier: read
+    prompt: What is the largest single file a Lazco Pages deploy accepts?
+    tools: [labs_pages_get_deploy_rules]
+    answer: ["25 ?MiB|25 ?MB|26,?214,?400"]
+
+  - id: pages-deploy-rules-content
+    tier: read
+    prompt: Which file types does a Lazco Pages deploy send with their content, so they can be checked before they go live?
+    tools: [labs_pages_get_deploy_rules]
+    answer: ["html", "css", "svg"]
+
+  - id: pages-deployment-status
+    tier: read
+    prompt: What is the status of the newest deployment of my Lazco Pages site {pagesSite}?
+    tools: [labs_pages_list_deployments, labs_pages_get_deployment]
+    proof:
+      command: [labs, pages, deployments, list, "{pagesSiteId}"]
+      expect: out.data[0].status
+
+  - id: pages-deploy
+    tier: write
+    prompt: Publish the website in the folder {siteDir} to my Lazco Pages site {pagesSite}, and give me its URL.
+    tools: [labs_pages_create_deployment]
+    setup: { writeSite: true }
+    proof:
+      command: [labs, pages, deployments, list, "{pagesSiteId}"]
+      check: "out.data[0].status === 'live' && out.data[0].fileCount === 2"
+    answer: ["https://[a-z0-9.-]+\\.lazco\\.page"]
+

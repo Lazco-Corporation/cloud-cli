@@ -13,6 +13,7 @@
 
 They use `bun test`.
 The spec fixtures in `test/fixtures/` cover every `x-lazco` case: `test/fixtures/surface.json` holds the operations the generator keeps, and `test/fixtures/skips.json` the ones it skips.
+`test/fixtures/pages.json` holds the Pages deploy routes, and `test/helpers/pagesApi.ts` serves them with a fake storage for the signed PUTs, so a test runs the uploader end to end. `test/helpers/fakeStorage.ts` is a storage endpoint alone, for the upload engine.
 `test/helpers/fakeApi.ts` is an API on `127.0.0.1` that records every request.
 `test/helpers/fixtureApi.ts` serves the `surface` fixture as its spec and answers its operations, and a test may change its features, scope, spec or ETag while it runs.
 `test/helpers/fakeProvider.ts` is the OpenID provider of the SSO sign-in on `127.0.0.1`: discovery, the authorize redirect with a fake browser, the code, device and refresh grants with rotation, revocation and `whoami`. A test sets what the browser does, the answers of the device grant, the token lifetime and a delay of the refresh answer.
@@ -49,9 +50,11 @@ The `contract` job runs one at a time, because every run writes to the same orga
 
 ## The MCP evaluation set
 
-`eval/mcp/tasks.yaml` holds 40 tasks in natural language against the contract organization.
+`eval/mcp/tasks.yaml` holds 44 tasks in natural language against the contract organization.
 Each has the tier it needs, the tools a good run calls, and a CLI command whose output proves the answer.
 `eval/mcp/run.ts` runs them through `pi` and grades each one.
+
+The Pages tasks deploy to an active Pages site of the contract organization, named `cli-eval` unless `--pages-site <name>` names another.
 
 1. Sign in a profile with the contract token: pipe it from `infisical run` into `lazco --profile staging --api-url https://api-staging.lazco.tw auth login --with-token`.
 2. Copy `~/.pi/agent/mcp.json`, if it exists.
@@ -61,6 +64,6 @@ Each has the tier it needs, the tools a good run calls, and a CLI command whose 
 6. Put the copy of `~/.pi/agent/mcp.json` back.
 
 The runner prints a JSON summary with the pass list and each failure.
-The bar is 36 of 40.
+The bar is 40 of 44.
 The results go into the pull request, never into the repo, because they depend on the model and the day.
 A weak result is usually a weak `summary` or `description` in the spec, and the fix belongs in `cloud-backend`.

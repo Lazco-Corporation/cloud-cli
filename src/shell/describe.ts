@@ -22,6 +22,7 @@ export function describeEntry(entry: CommandEntry): Record<string, unknown> {
     concurrency: operation?.annotation.concurrency ?? null,
     paginate: operation?.annotation.paginate ?? null,
     confirm: operation?.annotation.confirm ?? null,
+    upload: operation?.annotation.upload ?? null,
     feature: entry.feature,
     mcpTool: operation?.toolName ?? null,
     positionals: entry.positionals,

@@ -34,9 +34,9 @@
         "summary": "An upload this version has no uploader for",
         "x-lazco": {
           "cli": "labs pages deployments create",
-          "mcp": false,
+          "mcp": { "name": "labs_pages_create_deployment" },
           "kind": "write",
-          "upload": "pages-deployment"
+          "upload": "other"
         },
         "parameters": [
           { "name": "siteId", "in": "path", "required": true, "schema": { "type": "string" } }

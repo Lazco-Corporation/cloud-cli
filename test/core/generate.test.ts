@@ -38,6 +38,7 @@ describe("fixtures", () => {
 describe("skips", () => {
   const expected: Record<(typeof FIXTURE_NAMES)[number], Array<[string, SkipReason]>> = {
     surface: [],
+    pages: [],
     skips: [
       ["teleports.create", "invalid-annotation"],
       ["jobs.create", "invalid-annotation"],

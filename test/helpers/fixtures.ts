@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { OpenApiDocument } from "../../src/core/spec/types";
 
-export const FIXTURE_NAMES = ["surface", "skips"] as const;
+export const FIXTURE_NAMES = ["surface", "skips", "pages"] as const;
 export type FixtureName = (typeof FIXTURE_NAMES)[number];
 
 export function fixturePath(name: FixtureName): string {

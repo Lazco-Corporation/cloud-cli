@@ -1,5 +1,6 @@
 import type Ajv2020 from "ajv/dist/2020.js";
 import type { ErrorObject } from "ajv/dist/2020.js";
+import type { JsonSchema } from "../spec/types";
 
 export type OperationKind = "read" | "write" | "destructive" | "spend";
 
@@ -16,8 +17,47 @@ export type Annotation = {
   upload?: string;
 };
 
-/** The uploaders this version has. An `upload` naming any other is skipped. */
-export const KNOWN_UPLOADERS: ReadonlySet<string> = new Set();
+/**
+ * The input an uploader takes in place of its operation's body. Its
+ * positionals follow the operation's path parameters on the command line.
+ */
+export type UploaderInput = {
+  properties: Readonly<Record<string, JsonSchema>>;
+  required: readonly string[];
+  positionals: readonly string[];
+  /** Sentences the MCP tool's description adds, for what the uploader does beyond one request. */
+  toolNotes: readonly string[];
+};
+
+/** The input `directory`, which the MCP tool takes as an absolute path only. */
+export const DIRECTORY_INPUT = "directory";
+
+const PAGES_DEPLOYMENT_INPUT: UploaderInput = {
+  properties: {
+    [DIRECTORY_INPUT]: {
+      type: "string",
+      minLength: 1,
+      description:
+        "The local directory to publish as the site's root. A relative path is resolved against the working directory, and the MCP tool takes an absolute path only. Paths with a segment that starts with a dot, __MACOSX and node_modules are skipped. A link, a zip archive or a single file is refused.",
+    },
+  },
+  required: [DIRECTORY_INPUT],
+  positionals: [DIRECTORY_INPUT],
+  toolNotes: [
+    "Publishes every file of a local directory to the site, which anyone on the internet can read. Only pass a directory the user asked to publish.",
+    "directory must be an absolute path. The call checks the limits, uploads the changed files, and waits until the deployment is live or failed, which can take minutes.",
+    "When the call ends before the deployment does, the deployment goes on: read it with the deployment read tool.",
+  ],
+};
+
+/**
+ * The uploaders this version has, by the name an operation's `upload` gives.
+ * An `upload` naming any other is skipped. `src/uploads/registry.ts` holds
+ * the code that runs each one.
+ */
+export const KNOWN_UPLOADERS: ReadonlyMap<string, UploaderInput> = new Map([
+  ["pages-deployment", PAGES_DEPLOYMENT_INPUT],
+]);
 
 const COMMAND_WORD = "[a-z0-9][a-z0-9-]*";
 
