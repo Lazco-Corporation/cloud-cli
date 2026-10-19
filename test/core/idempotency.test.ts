@@ -39,6 +39,12 @@ describe("the --idempotency-key flag", () => {
     expect(error.message).toBe("--idempotency-key needs a value");
   });
 
+  test("a flag right after it is never taken as the key", () => {
+    const error = refusal(() => extractIdempotencyKeyFlag(["--idempotency-key", "--yes"]));
+    expect(error.message).toBe("--idempotency-key needs a value");
+    expect(extractIdempotencyKeyFlag(["--idempotency-key=--odd"]).key).toBe("--odd");
+  });
+
   test("given twice is CLI_INVALID_INPUT", () => {
     const error = refusal(() =>
       extractIdempotencyKeyFlag(["--idempotency-key", "a", "--idempotency-key=b"]),

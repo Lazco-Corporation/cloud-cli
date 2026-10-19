@@ -298,7 +298,8 @@ function isRetryableAnswer(policy: RetryPolicy, response: ApiResponse): boolean 
   if (policy === "get") {
     return GET_RETRYABLE_STATUSES.has(response.status);
   }
-  if (policy === "once") {
+  // A stored answer is the key's final one: sending it again only replays it.
+  if (policy === "once" || isReplayed(response.headers)) {
     return false;
   }
   if (response.status === 429) {

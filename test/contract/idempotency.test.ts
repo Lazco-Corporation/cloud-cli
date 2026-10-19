@@ -90,6 +90,7 @@ describe("Idempotency-Key", () => {
       const before = (await packs()).map((pack) => pack.id);
       const key = `cli-contract-${Date.now()}-${process.pid}`;
       const args = [...PACK_CREATE, "--yes", "--idempotency-key", key];
+      let failure: unknown;
       try {
         const first = await lazco(home.home, WRITE_TOKEN, args);
         expect(succeeded(first)).toEqual({ code: 0, stderr: "" });
@@ -103,9 +104,18 @@ describe("Idempotency-Key", () => {
 
         const added = (await packs()).map((pack) => pack.id).filter((id) => !before.includes(id));
         expect(added).toEqual([bought.id]);
-      } finally {
-        // Whatever failed above, no pack this run bought is left to renew.
+      } catch (error) {
+        failure = error;
+      }
+      // Whatever failed above, no pack this run bought is left to renew, and
+      // a failed cleanup never hides the first failure.
+      try {
         await deleteLivePacks();
+      } catch (cleanup) {
+        failure ??= cleanup;
+      }
+      if (failure !== undefined) {
+        throw failure;
       }
     },
     TIMEOUT_MS,

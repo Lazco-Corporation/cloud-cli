@@ -56,7 +56,9 @@ export function extractIdempotencyKeyFlag(tokens: readonly string[]): {
     if (key !== undefined) {
       throw flagProblem(`--${IDEMPOTENCY_KEY_FLAG} is given twice`);
     }
-    const value = match[1] ?? tokens[index + 1];
+    const next = tokens[index + 1];
+    // `--idempotency-key --yes` forgot the value: never take the next flag as the key.
+    const value = match[1] ?? (next?.startsWith("--") ? undefined : next);
     if (value === undefined) {
       throw flagProblem(`--${IDEMPOTENCY_KEY_FLAG} needs a value`);
     }

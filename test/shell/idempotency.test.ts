@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cliEnv, FAKE_TOKEN, makeHome, runInProcess, seedSpecCache } from "../helpers/cli";
 import { DroppingApi } from "../helpers/droppingApi";
-import { FakeApi, fakeClock, json, type RecordedRequest } from "../helpers/fakeApi";
+import { closedApiUrl, FakeApi, fakeClock, json, type RecordedRequest } from "../helpers/fakeApi";
 import { loadFixture } from "../helpers/fixtures";
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -98,6 +98,8 @@ describe("the core sends an Idempotency-Key where the spec declares one", () => 
     const result = await run(["compute", "list"]);
     expect(result.code).toBe(0);
     const list = store.api.requests.find((request) => request.path === "/v1/servers");
+    expect(list).toBeDefined();
+    expect(list?.method).toBe("GET");
     expect(list?.headers["idempotency-key"]).toBeUndefined();
   });
 
@@ -125,12 +127,18 @@ describe("the core sends an Idempotency-Key where the spec declares one", () => 
   });
 
   test("a connection that drops after the API charged is sent again with the same key", async () => {
-    let charges = 0;
+    // The fake charges once per new key, as the API's key layer does.
+    const charged = new Set<string>();
     const dropping = await DroppingApi.start((request, index) => {
       const body = { taskId: "t-1", serverId: "srv-1", password: "once-only" };
+      const key = request.headers["idempotency-key"] ?? `none-${index}`;
+      const replay = charged.has(key);
+      charged.add(key);
       if (index === 0) {
-        charges += 1;
         return "drop";
+      }
+      if (!replay) {
+        return { status: 202, body: { ...body, serverId: "srv-2" } };
       }
       return {
         status: 202,
@@ -149,7 +157,7 @@ describe("the core sends an Idempotency-Key where the spec declares one", () => 
       expect(keys).toHaveLength(2);
       expect(keys[0]).toMatch(UUID_V4);
       expect(keys[1]).toBe(keys[0] as string);
-      expect(charges).toBe(1);
+      expect(charged.size).toBe(1);
       expect(JSON.parse(result.stdout)).toEqual({
         taskId: "t-1",
         serverId: "srv-1",
@@ -210,6 +218,47 @@ describe("a keyed request that the API refuses", () => {
     expect(JSON.parse(result.stderr.trim().split("\n").at(-1) as string).error.code).toBe(
       "CLI_BAD_RESPONSE",
     );
+  });
+
+  for (const [label, answer] of [
+    [
+      "IDEMPOTENCY_KEY_IN_PROGRESS",
+      () =>
+        json(
+          409,
+          { error: "Still running", code: "IDEMPOTENCY_KEY_IN_PROGRESS" },
+          { "retry-after": "1" },
+        ),
+    ],
+    [
+      "a 429 with a long Retry-After",
+      () => json(429, { error: "Too many", code: "RATE_LIMITED" }, { "retry-after": "600" }),
+    ],
+  ] as const) {
+    test(`${label} at the end prints the generated key too`, async () => {
+      store.api.handler = answer;
+      const result = await runInProcess(["--api-url", store.api.apiUrl, ...CREATE], {
+        env: env(),
+        clock: fakeClock(),
+      });
+      expect(result.code).toBe(1);
+      const key = createRequests()[0]?.headers["idempotency-key"] as string;
+      expect(result.stderr).toContain(`run the same command with --idempotency-key ${key}`);
+    });
+  }
+
+  test("no connection at all prints the generated key too", async () => {
+    const closed = await closedApiUrl();
+    await seedSpecCache(home.cache, closed, loadFixture("surface"));
+    const result = await runInProcess(["--api-url", closed, ...CREATE], {
+      env: env(),
+      clock: fakeClock(),
+    });
+    expect(result.code).toBe(1);
+    expect(JSON.parse(result.stderr.trim().split("\n").at(-1) as string).error.code).toBe(
+      "CLI_NETWORK",
+    );
+    expect(result.stderr).toMatch(/run the same command with --idempotency-key [0-9a-f-]{36}/);
   });
 
   test("the key is not printed again when the user gave it, or after a final answer", async () => {

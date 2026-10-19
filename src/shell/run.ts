@@ -627,12 +627,14 @@ function dryRunPreview(
 
 /**
  * True for an error after which nobody knows whether the API ran the request:
- * no answer, an answer that is not the API's, or the key's first request still
- * running. An answer of the API's error shape is final and stored under the key.
+ * no answer, an answer that is not the API's, the key's first request still
+ * running, or a 429, which the API answers before it looks at the key, so an
+ * earlier try may have run. Any other answer of the API's error shape is final
+ * and stored under the key.
  */
 function outcomeUnknown(error: unknown): boolean {
   if (error instanceof ApiError) {
-    return error.code === "IDEMPOTENCY_KEY_IN_PROGRESS";
+    return error.code === "IDEMPOTENCY_KEY_IN_PROGRESS" || error.status === 429;
   }
   return (
     error instanceof CliError &&

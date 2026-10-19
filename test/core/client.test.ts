@@ -419,12 +419,18 @@ describe("a request with Idempotency-Key", () => {
   });
 
   test("a dropped connection is sent again with the same key, and the first result comes back", async () => {
-    let charges = 0;
+    // The fake charges once per new key, as the API's key layer does.
+    const charged = new Set<string>();
     const dropping = await DroppingApi.start((request, index) => {
+      const key = request.headers["idempotency-key"] ?? `none-${index}`;
+      const replay = charged.has(key);
+      charged.add(key);
       if (index === 0) {
         // The API created the server and charged, then the connection dropped.
-        charges += 1;
         return "drop";
+      }
+      if (!replay) {
+        return { status: 202, body: { taskId: "t-2" } };
       }
       return {
         status: 202,
@@ -441,7 +447,7 @@ describe("a request with Idempotency-Key", () => {
         "key-1",
       ]);
       expect(dropping.requests[1]?.body).toEqual(dropping.requests[0]?.body);
-      expect(charges).toBe(1);
+      expect(charged.size).toBe(1);
       expect(clock.sleeps).toEqual([1000]);
     } finally {
       await dropping.stop();
@@ -473,6 +479,15 @@ describe("a request with Idempotency-Key", () => {
       "Bearer new-access",
     ]);
     expect(keysSent()).toEqual(["key-1", "key-1"]);
+  });
+
+  test("a replayed 429 is the key's stored answer, and is not sent again", async () => {
+    api.handler = () =>
+      json(429, { error: "Too many", code: "RATE_LIMITED" }, { "idempotent-replayed": "true" });
+    const { client: apiClient } = client();
+    const error = (await failure(apiClient.call(keyed()))) as ApiError;
+    expect(error.status).toBe(429);
+    expect(api.requests).toHaveLength(1);
   });
 
   test("a timeout is not sent again", async () => {
