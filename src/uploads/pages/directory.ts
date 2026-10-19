@@ -92,9 +92,18 @@ export async function resolveSiteDirectory(
   } catch {
     throw problem(`${given} does not exist`);
   }
-  const info = await stat(real);
+  let info: Awaited<ReturnType<typeof stat>>;
+  let zip = false;
+  try {
+    info = await stat(real);
+    zip = info.isFile() && (/\.zip$/i.test(real) || (await startsLikeZip(real)));
+  } catch (error) {
+    throw problem(
+      `${given} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   if (info.isFile()) {
-    if (/\.zip$/i.test(real) || (await startsLikeZip(real))) {
+    if (zip) {
       throw problem(
         `${given} is a zip archive. Unpack it first, then deploy the directory it holds`,
       );

@@ -19,8 +19,11 @@ export class UploadWindow {
     this.clock = clock;
   }
 
-  /** Sets the end from an answer's `uploadExpiresAt` and its `Date` header. */
-  update(uploadExpiresAt: unknown, dateHeader: string | null): void {
+  /**
+   * Sets the end from an answer's `uploadExpiresAt` and its `Date` header.
+   * Answers false when the answer had no `Date`, so the local clock counts.
+   */
+  update(uploadExpiresAt: unknown, dateHeader: string | null): boolean {
     const end = typeof uploadExpiresAt === "string" ? Date.parse(uploadExpiresAt) : Number.NaN;
     if (Number.isNaN(end)) {
       throw new CliError("CLI_BAD_RESPONSE", "The deployment has no valid uploadExpiresAt", {
@@ -30,11 +33,22 @@ export class UploadWindow {
     const serverNow = dateHeader === null ? Number.NaN : Date.parse(dateHeader);
     this.offset = Number.isNaN(serverNow) ? 0 : serverNow - this.clock.now();
     this.endsAt = end;
+    return !Number.isNaN(serverNow);
+  }
+
+  /** The end of the window now, in the server's time, which each URL signed now shares. */
+  end(): number {
+    return this.endsAt;
+  }
+
+  /** The time left until a given end, by the server's clock. */
+  remainingUntilMs(end: number): number {
+    return end - (this.clock.now() + this.offset);
   }
 
   /** The time left in the window, by the server's clock. */
   remainingMs(): number {
-    return this.endsAt - (this.clock.now() + this.offset);
+    return this.remainingUntilMs(this.endsAt);
   }
 
   needsRenewal(): boolean {

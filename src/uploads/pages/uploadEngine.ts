@@ -102,8 +102,11 @@ export async function uploadFiles(
   const concurrency = options.concurrency ?? UPLOAD_CONCURRENCY;
   const deadlineMs = options.deadlineMs ?? putDeadlineMs;
   const timer = options.timer ?? REAL_TIMER;
-  const current = new Map<string, { upload: SignedUpload; generation: number }>(
-    options.uploads.map((upload) => [upload.path, { upload, generation: 0 }]),
+  /** Each upload's URL now, how many times it was renewed, and the window end it was signed for. */
+  type CurrentUpload = { upload: SignedUpload; generation: number; endsAt: number };
+  const firstEnd = options.window.end();
+  const current = new Map<string, CurrentUpload>(
+    options.uploads.map((upload) => [upload.path, { upload, generation: 0, endsAt: firstEnd }]),
   );
   const notStarted = new Set(options.uploads.map((upload) => upload.path));
   /** Started uploads that need a new URL: refused with 403, or about to be sent again late in the window. */
@@ -165,12 +168,20 @@ export async function uploadFiles(
               throw error;
             }
             await options.clock.sleep(RETRY_DELAYS_MS[attempt] as number);
+            if (stop.signal.aborted) {
+              throw new Interrupted();
+            }
           }
         }
+        const signedFor = options.window.end();
         for (const upload of fresh) {
           const entry = current.get(upload.path);
           if (entry) {
-            current.set(upload.path, { upload, generation: entry.generation + 1 });
+            current.set(upload.path, {
+              upload,
+              generation: entry.generation + 1,
+              endsAt: signedFor,
+            });
           }
           needsUrl.delete(upload.path);
         }
@@ -263,11 +274,12 @@ export async function uploadFiles(
       if (renewal) {
         await renewal;
       }
-      const before = current.get(path) as { upload: SignedUpload; generation: number };
-      if (options.window.needsRenewal()) {
+      // Each URL keeps the end it was signed for, which a renewal of other paths never moves.
+      const before = current.get(path) as CurrentUpload;
+      if (options.window.remainingUntilMs(before.endsAt) < RENEW_BEFORE_MS) {
         await renewFor(path, before.generation);
       }
-      const entry = current.get(path) as { upload: SignedUpload; generation: number };
+      const entry = current.get(path) as CurrentUpload;
       const outcome = await putOnce(entry.upload, bytes);
       if (outcome.kind === "answer" && outcome.status >= 200 && outcome.status < 300) {
         return;

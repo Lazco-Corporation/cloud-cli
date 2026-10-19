@@ -200,7 +200,11 @@ export async function deployPagesSite(context: UploaderContext): Promise<Record<
     }
     signal.throwIfAborted();
     const window = new UploadWindow(context.clock);
-    window.update(deployment.uploadExpiresAt, startResponse.headers.get("date"));
+    if (!window.update(deployment.uploadExpiresAt, startResponse.headers.get("date"))) {
+      context.progress(
+        "warning: the API sent no Date header, so the upload window is timed by the local clock",
+      );
+    }
     const uploadBytes = start.uploads.reduce(
       (sum, upload) => sum + (byPath.get(upload.path)?.size ?? 0),
       0,
@@ -251,8 +255,9 @@ export async function deployPagesSite(context: UploaderContext): Promise<Record<
       uploadedBytes: uploaded.uploadedBytes,
     };
   } catch (error) {
-    // Read before the cancel, so a Ctrl-C during the cancel never replaces the first error.
-    const interrupted = signal.aborted;
+    // Only an error that the interrupt itself raised is one: a Ctrl-C after another error,
+    // or during the cancel, never replaces the first error.
+    const interrupted = error instanceof Interrupted || (signal.aborted && error === signal.reason);
     const cancelled = await cancelDeployment(context, deploymentPath, deployment.id);
     if (interrupted) {
       throw new CliError(

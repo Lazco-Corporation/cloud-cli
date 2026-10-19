@@ -327,6 +327,50 @@ describe("the renewal", () => {
     expect(storage.puts.map((put) => generationOf(put.url))).toEqual(["0", "1"]);
   });
 
+  test("a retry waits out a renewal of other paths, then renews its own old URL", async () => {
+    const files = await siteFiles(root, { "a.png": "a", "b.png": "b", "c.png": "c" });
+    const { window, renewals, renew } = setUp(files);
+    let advanced: () => void = () => {};
+    const clockMoved = new Promise<void>((resolve) => {
+      advanced = resolve;
+    });
+    storage.handler = async (put) => {
+      if (put.path === "a.png") {
+        // a ends only after b moved the clock, so its worker starts c late in the window.
+        await clockMoved;
+        return new Response(null, { status: 200 });
+      }
+      if (put.path === "b.png" && put.attempt === 1) {
+        clock.time += 52 * MINUTE;
+        advanced();
+        await Bun.sleep(5);
+        return new Response(null, { status: 503 });
+      }
+      return new Response(null, { status: 200 });
+    };
+    await uploadFiles({
+      uploads: signedUploads(storage, files),
+      files,
+      lastExtensions: new Set(["html"]),
+      window,
+      renew: async (paths) => {
+        await Bun.sleep(30);
+        return renew(paths);
+      },
+      fetch,
+      clock,
+      signal: new AbortController().signal,
+      concurrency: 2,
+      timer: NEVER,
+    });
+    expect(renewals).toHaveLength(2);
+    expect(renewals[0]?.paths).toEqual(["c.png"]);
+    expect(renewals[1]?.paths).toContain("b.png");
+    // The retry of b carries the URL of the second renewal, never its first one.
+    const b = storage.puts.filter((put) => put.path === "b.png");
+    expect(b.map((put) => generationOf(put.url))).toEqual(["0", "2"]);
+  });
+
   test("an interrupt while a renewal is in flight starts no other PUT", async () => {
     const files = await siteFiles(root, { "a.png": "a", "b.png": "b" });
     const { window, renew } = setUp(files);
