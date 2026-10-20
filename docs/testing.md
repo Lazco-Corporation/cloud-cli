@@ -42,7 +42,7 @@ infisical run --env=staging --path=/ci --projectId 0248054f-6632-402a-b7b9-290b9
 ```
 
 `LAZCO_CONTRACT_API_URL` points them at another API, such as a local backend.
-`LAZCO_CONTRACT_SPEND=1` adds the one test that spends: it buys a Pages pack twice with one `--idempotency-key`, checks the replay, and deletes the pack.
+`LAZCO_CONTRACT_SPEND=1` adds the one test that spends: it gets a quote with `--dry-run`, buys a Pages pack twice with that quote and one `--idempotency-key`, checks the replay, and deletes the pack.
 A pack costs a month of it with no refund, so the `contract` job sets it only on a push to `main`.
 The organization needs the `pages` feature and a balance of one pack month.
 The test deletes every pack of the organization that still renews, before and after the purchase, so never run it by hand while a `contract` job of `main` runs.

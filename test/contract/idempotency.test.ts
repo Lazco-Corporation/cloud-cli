@@ -89,11 +89,25 @@ describe("Idempotency-Key", () => {
       await deleteLivePacks();
       const before = (await packs()).map((pack) => pack.id);
       const key = `cli-contract-${Date.now()}-${process.pid}`;
-      const args = [...PACK_CREATE, "--yes", "--idempotency-key", key];
+      // One quote for both runs: a quote is used once, and the second run replays the first.
+      const dryRun = await lazco(home.home, WRITE_TOKEN, [...PACK_CREATE, "--dry-run"]);
+      expect(succeeded(dryRun)).toEqual({ code: 0, stderr: "" });
+      const { quote } = JSON.parse(dryRun.stdout) as { quote: { quoteId: string; amount: string } };
+      const args = [
+        ...PACK_CREATE,
+        "--yes",
+        "--idempotency-key",
+        key,
+        "--quote-id",
+        quote.quoteId,
+        "--expected-amount",
+        quote.amount,
+      ];
       let failure: unknown;
       try {
         const first = await lazco(home.home, WRITE_TOKEN, args);
-        expect(succeeded(first)).toEqual({ code: 0, stderr: "" });
+        expect(first.code).toBe(0);
+        expect(first.stderr).toContain(`quote ${quote.quoteId}`);
         const bought = JSON.parse(first.stdout) as Pack;
         expect(typeof bought.id).toBe("string");
 

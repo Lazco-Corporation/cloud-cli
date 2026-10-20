@@ -37,7 +37,7 @@ It never holds a credential or an environment variable that holds one: the serve
 }
 ```
 
-`--profile`, `--api-url` and `--allow-writes` given to `install` go into `args`.
+`--profile`, `--api-url`, `--allow-writes` and `--allow-spend` given to `install` go into `args`.
 
 The command is an absolute path, because a desktop client often starts with a `PATH` that lacks the user's shell setup.
 It is chosen in this order:

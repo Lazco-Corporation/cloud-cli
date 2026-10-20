@@ -65,6 +65,7 @@ The pre-push hook runs gitleaks, the check, the type check and the unit tests.
 - Only sign-in, profiles and credentials, and `mcp` are hand-written commands. An upload is hand-written behavior on a generated command, registered in `KNOWN_UPLOADERS`. A wrong command or tool name is fixed in the backend's `x-lazco`, never here.
 - `src/credentials/nativeKeyring.ts` keeps its one literal `import("@napi-rs/keyring")`, which `scripts/build-binaries.sh` rewrites per target. Without it every binary falls back to the file store and nothing fails.
 - An `x-lazco` value this version does not know skips its operation with one warning. An unknown key is ignored.
-- MCP never offers a `spend` tool, and offers a `destructive` tool only when its operation has `confirm`.
+- MCP offers a `spend` tool only with `--allow-writes --allow-spend`, always together with its quote tool, and never a quote tool alone. It offers a `destructive` tool only when its operation has `confirm`.
+- A spend never goes out without a quote the user saw: a command shows it and asks or needs `--yes`, `--dry-run` sends only the quote request, and a refused quote is never replaced by a new one. Money stays the decimal string the API sent.
 - Every job of `.github/workflows/ci.yml` and `.github/workflows/release-npm.yml` runs on `ubuntu-latest`. No secret lives in GitHub: CI reads Infisical `lazco-cloud-cli` through OIDC.
 - The MCP evaluation set runs locally, never in CI, and its results never go into the repo.

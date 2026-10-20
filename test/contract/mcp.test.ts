@@ -55,6 +55,7 @@ function expectedTools(kinds: ReadonlySet<string>): string[] {
     .filter(
       (operation) =>
         operation.toolName !== null &&
+        !operation.isQuote &&
         featureOn(operation) &&
         kinds.has(operation.kind) &&
         (operation.kind !== "destructive" || operation.annotation.confirm !== undefined),
@@ -67,9 +68,11 @@ async function listedNames(session: Client): Promise<string[]> {
   return (await session.listTools()).tools.map((tool) => tool.name).sort();
 }
 
+/** The spend tools and their quote tools, which only --allow-writes --allow-spend adds. */
 const spendTools = operations
   .filter((operation) => operation.kind === "spend" && operation.toolName !== null)
-  .map((operation) => operation.toolName as string);
+  .flatMap((operation) => [operation.toolName as string, operation.quote?.toolName ?? ""])
+  .filter(Boolean);
 
 describe("the MCP tiers on staging", () => {
   test(
