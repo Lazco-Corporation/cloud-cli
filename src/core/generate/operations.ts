@@ -207,9 +207,10 @@ export function generateSurface(document: OpenApiDocument, ajv: Ajv2020): Genera
     }
   }
 
+  // Only a write operation can be a quote, so a wrong name in the spec never hides a read tool.
   const marked = kept.map((operation) => ({
     ...operation,
-    isQuote: namedQuotes.has(operation.operationId),
+    isQuote: operation.kind === "write" && namedQuotes.has(operation.operationId),
   }));
   const byOperationId = new Map(marked.map((operation) => [operation.operationId, operation]));
   const operations: Operation[] = [];
@@ -240,7 +241,7 @@ function quoteProblem(
   const name = operation.annotation.quote as string;
   const quote = candidates.get(name);
   if (quote === undefined) {
-    return `its quote operation "${name}" is not in the spec`;
+    return `its quote operation "${name}" is not in the spec, or is skipped`;
   }
   // A quote stores a quote and charges nothing: any other kind is a mistake of the spec.
   if (quote.kind !== "write") {

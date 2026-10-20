@@ -385,7 +385,8 @@ describe("spend operations and their quotes", () => {
       expect.objectContaining({
         operationId: "compute.servers.upgrade",
         reason: "no-quote",
-        message: 'its quote operation "compute.servers.quote-upgrade" is not in the spec',
+        message:
+          'its quote operation "compute.servers.quote-upgrade" is not in the spec, or is skipped',
       }),
     ]);
   });
@@ -451,6 +452,16 @@ describe("spend operations and their quotes", () => {
       ]);
     });
   }
+
+  test("a quote name that points at a read operation never hides that read operation", () => {
+    const document = loadFixture("spend");
+    const upgrade = document.paths["/v1/servers/{serverId}/upgrade"]?.post;
+    if (!upgrade) throw new Error("fixture changed");
+    (upgrade["x-lazco"] as Record<string, unknown>).quote = "billing.quotes.get";
+    const generated = generateSurface(document, ajv);
+    expect(generated.skipped.map((skip) => skip.operationId)).toEqual(["compute.servers.upgrade"]);
+    expect(byCommand(generated.operations, "billing quotes get").isQuote).toBe(false);
+  });
 
   test("a spend operation that does not require Idempotency-Key is no command", () => {
     const document = loadFixture("spend");

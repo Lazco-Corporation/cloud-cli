@@ -86,9 +86,13 @@ export function sameAmount(left: string, right: string): boolean {
 
 /** TWD for a person, with the decimals the value carries: `"52.500"` is `NT$52.5`. */
 export function formatTwd(amount: unknown): string {
+  if (amount === undefined || amount === null) {
+    return "an amount the API did not send";
+  }
   const parts = typeof amount === "string" ? decimalParts(amount) : null;
   if (parts === null) {
-    return `${String(amount)} TWD`;
+    // A malformed figure is still shown, as the API sent it, never hidden.
+    return `${JSON.stringify(amount)} TWD`;
   }
   const number = parts.decimals === "" ? parts.whole : `${parts.whole}.${parts.decimals}`;
   return `${parts.negative ? "-" : ""}NT$${number}`;
@@ -114,8 +118,9 @@ function periodText(period: Period): string | undefined {
   return `${period.start} to ${period.end}`;
 }
 
-function isMoney(value: unknown): value is string {
-  return typeof value === "string" && MONEY_TEXT.test(value);
+/** True for a figure the API sent. A malformed one is still shown, as the API sent it. */
+function isGiven(value: unknown): boolean {
+  return value !== undefined && value !== null;
 }
 
 /**
@@ -131,7 +136,7 @@ export function describeQuote(quote: Quote): string[] {
     }
     const label = typeof item.description === "string" ? item.description : String(item.code);
     const period = periodText(item.period as Period);
-    const amount = isMoney(item.amount) ? `: ${formatTwd(item.amount)}` : "";
+    const amount = isGiven(item.amount) ? `: ${formatTwd(item.amount)}` : "";
     lines.push(`  ${label}${amount}${period ? ` (${period})` : ""}`);
   }
   const period = periodText(quote.period as Period);
@@ -143,12 +148,12 @@ export function describeQuote(quote: Quote): string[] {
     interval?: unknown;
     startsAt?: unknown;
   } | null;
-  if (recurring !== null && typeof recurring === "object" && isMoney(recurring.amount)) {
+  if (recurring !== null && typeof recurring === "object") {
     const interval = INTERVALS[String(recurring.interval)] ?? `every ${String(recurring.interval)}`;
     const from = typeof recurring.startsAt === "string" ? `, from ${recurring.startsAt}` : "";
     lines.push(`then ${formatTwd(recurring.amount)} ${interval}${from}`);
   }
-  if (isMoney(quote.accountBalance)) {
+  if (isGiven(quote.accountBalance)) {
     lines.push(`account balance: ${formatTwd(quote.accountBalance)}`);
   }
   if (quote.sufficient === false) {
@@ -156,8 +161,8 @@ export function describeQuote(quote: Quote): string[] {
       "the account balance is short of this amount. Top up the account balance before you spend",
     );
   }
-  if (typeof quote.expiresAt === "string") {
-    lines.push(`the quote expires at ${quote.expiresAt}, and is good for one spend`);
+  if (isGiven(quote.expiresAt)) {
+    lines.push(`the quote expires at ${String(quote.expiresAt)}, and is good for one spend`);
   }
   return lines;
 }

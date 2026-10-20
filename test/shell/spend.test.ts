@@ -126,6 +126,7 @@ describe("a spend command quotes, asks, and then spends", () => {
     const spent = await run([...UPGRADE, "--yes"]);
     for (const output of [asked, dry, spent]) {
       expect(output.stdout + output.stderr).not.toContain(FAKE_TOKEN);
+      expect(output.stdout + output.stderr).not.toContain(FAKE_TOKEN.slice(-8));
     }
   });
 
@@ -193,6 +194,22 @@ describe("a spend command quotes, asks, and then spends", () => {
     expect(result.stderr).toContain("quote q-min: NT$1 from the account balance");
     expect(result.stderr).not.toContain("undefined");
     expect(result.stderr).not.toContain("null");
+  });
+
+  test("a malformed figure is shown as the API sent it, never hidden", async () => {
+    state.quote = upgradeQuote({
+      recurring: { amount: 250, interval: "30_days", startsAt: "2026-11-01T00:00:00.000Z" },
+    });
+    const result = await run(UPGRADE);
+    expect(result.stderr).toContain("then 250 TWD every 30 days");
+    expect(spendRequests()).toEqual([]);
+  });
+
+  test("the key notice quotes a quote id a shell would split", async () => {
+    state.quote = upgradeQuote({ quoteId: "q 'x" });
+    state.spendAnswer = () => new Response("<html>502</html>", { status: 502 });
+    const result = await run([...UPGRADE, "--yes"]);
+    expect(result.stderr).toContain(`--quote-id 'q '\\''x' --expected-amount 100.000`);
   });
 
   test("an open quote schema gets the whole input, so it prices what the spend sends", async () => {

@@ -60,10 +60,14 @@ The exit code is 0, or 1 on any error.
 
 - Before it reads any MCP message, it reads `GET /v1/whoami` and the spec, because the instructions of `initialize` need both. With no credential it exits with `CLI_NOT_LOGGED_IN` and writes nothing to stdout.
 - It declares `tools` with `listChanged` only: no resources and no prompts.
-- `src/mcp/tools.ts` picks the tools by tier: `read` always, `write` and confirmed `destructive` with `--allow-writes` on a token that can write, `spend` with `--allow-spend` too, and none whose feature is off. The annotations come from `kind` and the method.
+- `src/mcp/tools.ts` picks the tools by tier: `read` always, `write` and confirmed `destructive` with `--allow-writes` on a token that can write, `spend` with `--allow-spend` too, and none whose feature is off.
+  The annotations come from `kind` and the method.
 - A quote tool registers only with its spend tool, never alone.
   A spend tool requires `quoteId` and `expectedAmount`, and its description names its quote tool.
-- When the client declared `elicitation`, a spend tool call reads the quote with `GET /v1/billing/quotes/{quoteId}`, refuses an `expectedAmount` that is not the quote's amount, asks the user one required boolean, and sends the spend only on `accept` with `confirm` true.
+- When the client declared `elicitation`, a spend tool call reads the quote with `GET /v1/billing/quotes/{quoteId}`.
+  It refuses a quote of another operation, a quote that is not `open`, and an `expectedAmount` that is not the quote's amount.
+  Then it asks the user one required boolean, and sends the spend only on `accept` with `confirm` true.
+  A client that declared URL elicitation only cannot answer a form, so its spend calls answer `CLI_CONFIRM_REQUIRED`.
 - An upload tool runs its uploader to the end, and sends `notifications/progress` when the call carries a progress token. A cancel of the call is an interrupt.
 - A tool call returns one `text` item with the JSON answer, or `isError` with the error object. An async tool returns `{ "accepted": <202 body>, "taskTool": "tasks_get" }` at once. A paginated tool returns one page as the API sent it.
 - Every 5 minutes while a client is connected, it checks the spec by ETag and reads `whoami` again, and sends `notifications/tools/list_changed` only when the listed tools changed.

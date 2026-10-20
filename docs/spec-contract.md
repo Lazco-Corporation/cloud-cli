@@ -24,7 +24,7 @@ The MCP server checks by ETag every 5 minutes, whatever the age of its copy.
 
 | Key | Values | Effect |
 |---|---|---|
-| `expose` | `false` | No command and no tool. Nothing else is read |
+| `expose` | `false` | No command and no tool. Nothing else is read, but a hidden spend's `quote` still marks its quote operation, which then never registers as a tool alone |
 | `cli` | words of `[a-z0-9][a-z0-9-]*` | The command, such as `compute delete` |
 | `mcp` | `{ "name": "<snake_case>" }` or `false` | The tool name, or no tool |
 | `kind` | `read`, `write`, `destructive`, `spend` | The confirmation, the MCP tier and the annotations |
@@ -89,8 +89,14 @@ The API mounts it at `<spend path>/quote`, and the CLI finds it by its `operatio
 - Every money value stays the decimal string the API sent.
   Readable text shows TWD with the decimals the value carries, such as `NT$52.5`.
 
+A quote answer holds `quoteId`, `operationId` (the spend operation it prices), `amount` and the other figures of the API's `Quote` schema.
+The CLI needs `quoteId` and an `amount` of at most 3 decimals, and fails with `CLI_BAD_RESPONSE` before the question without them.
+
 An MCP spend tool takes `quoteId` and `expectedAmount` as required inputs, and its quote tool takes the rest.
 Both register only with `--allow-writes --allow-spend`, and a quote tool never registers without its spend tool.
+With elicitation, a spend tool reads the quote back and asks only when its `operationId` is the tool's operation, its `status` is `open`, and its `amount` equals `expectedAmount`.
+Any other quote is `CLI_INVALID_INPUT`, with no question and no spend.
+The question waits until the quote expires, for 60 seconds at least.
 
 ## Idempotency-Key
 

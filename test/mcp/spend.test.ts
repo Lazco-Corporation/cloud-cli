@@ -365,6 +365,38 @@ describe("elicitation", () => {
     });
   }
 
+  test("a quote answer without a status is CLI_INVALID_INPUT, with no question and no spend", async () => {
+    const { status: _status, ...noStatus } = { ...upgradeQuote(), status: undefined };
+    const handler = api.handler;
+    api.handler = (request) =>
+      request.path === "/v1/billing/quotes/q-up" ? json(200, noStatus) : handler(request);
+    const session = await start({ allowWrites: true, allowSpend: true, elicitation: accept });
+    const result = await session.client.callTool({
+      name: "compute_upgrade_server",
+      arguments: UPGRADE,
+    });
+    expect(resultJson(result)).toMatchObject({ error: { code: "CLI_INVALID_INPUT" } });
+    expect(session.elicitations).toEqual([]);
+    expect(spends()).toEqual([]);
+  });
+
+  test("a client with URL elicitation only cannot be asked, so nothing is spent", async () => {
+    connected = await connectSession(api, {
+      allowWrites: true,
+      allowSpend: true,
+      cacheDirectory: home.cache,
+      elicitation: accept,
+      elicitationCapability: { url: {} },
+    });
+    const result = await connected.client.callTool({
+      name: "compute_upgrade_server",
+      arguments: UPGRADE,
+    });
+    expect(resultJson(result)).toMatchObject({ error: { code: "CLI_CONFIRM_REQUIRED" } });
+    expect(connected.elicitations).toEqual([]);
+    expect(spends()).toEqual([]);
+  });
+
   test("the same amount written with fewer decimals passes", async () => {
     const session = await start({ allowWrites: true, allowSpend: true, elicitation: accept });
     const result = await session.client.callTool({
@@ -423,7 +455,9 @@ describe("elicitation", () => {
     // The echoes did arrive, and were redacted.
     expect(session.elicitations[0]).toContain("Bearer [REDACTED]");
     expect(resultJson(result)).toMatchObject({ error: { seen: "Bearer [REDACTED]" } });
-    expect(JSON.stringify(result)).not.toContain(FAKE_TOKEN);
-    expect(session.elicitations.join("\n")).not.toContain(FAKE_TOKEN);
+    for (const text of [JSON.stringify(result), session.elicitations.join("\n")]) {
+      expect(text).not.toContain(FAKE_TOKEN);
+      expect(text).not.toContain(FAKE_TOKEN.slice(-8));
+    }
   });
 });

@@ -68,7 +68,7 @@ The pre-push hook runs gitleaks, the check, the type check and the unit tests.
 - MCP offers a `spend` tool only with `--allow-writes --allow-spend`, always together with its quote tool, and never a quote tool alone.
   It offers a `destructive` tool only when its operation has `confirm`.
 - A spend command never sends a spend without a quote it showed on stderr, and asks or needs `--yes` first.
-  `--dry-run` sends only the quote request, and a refused quote is never replaced by a new one.
+  `--dry-run` sends only the quote request, or nothing when `--quote-id` gives the quote, and a refused quote is never replaced by a new one.
   A spend tool needs a quote too.
   It asks the user only when the client declared elicitation, and otherwise it relies on its description and the instructions, which tell the model to show the quote and get a yes.
   Money stays the decimal string the API sent.

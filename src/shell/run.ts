@@ -511,11 +511,11 @@ class Shell {
       ) {
         // A spend run again must carry the same quote, or its body differs from the first.
         const quoteFlagsText = spent.quote
-          ? ` --quote-id ${spent.quote.quoteId} --expected-amount ${spent.quote.amount}`
+          ? ` --quote-id ${shellWord(spent.quote.quoteId)} --expected-amount ${shellWord(spent.quote.amount)}`
           : "";
         writeNotice(
           this.io,
-          `the request may have run. To get its result instead of running it again, run the same command with --idempotency-key ${idempotencyKey}${quoteFlagsText}`,
+          `the request may have run. To get its result instead of running it again, run the same command with --idempotency-key ${shellWord(idempotencyKey)}${quoteFlagsText}`,
         );
       }
       throw error;
@@ -541,20 +541,19 @@ class Shell {
   ): Promise<void> {
     const session = await this.session();
     const needsCredential = given === undefined || !this.flags.dryRun;
-    const client = this.client(
-      session.apiUrl,
-      needsCredential ? await this.credential() : undefined,
-    );
+    let client: ApiClient;
     let quote: Quote | null = null;
-    if (given === undefined) {
-      try {
+    try {
+      // A credential refresh can fail on the network too, and nothing was spent then either.
+      client = this.client(session.apiUrl, needsCredential ? await this.credential() : undefined);
+      if (given === undefined) {
         quote = await this.requestQuote(client, quoteOperation, input);
-      } catch (error) {
-        if (error !== null && typeof error === "object") {
-          BEFORE_KEYED_REQUEST.add(error);
-        }
-        throw error;
       }
+    } catch (error) {
+      if (error !== null && typeof error === "object") {
+        BEFORE_KEYED_REQUEST.add(error);
+      }
+      throw error;
     }
     const used: GivenQuote = quote ?? (given as GivenQuote);
     const fields = quoteFields(used);
@@ -818,6 +817,11 @@ function outcomeUnknown(error: unknown): boolean {
       error.code === "CLI_TIMEOUT" ||
       error.code === "CLI_BAD_RESPONSE")
   );
+}
+
+/** A value as one word a shell reads back unchanged: as it is when that is safe, else quoted. */
+function shellWord(value: string): string {
+  return /^[A-Za-z0-9._:@%+=,/-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function startsWith(command: readonly string[], prefix: readonly string[]): boolean {

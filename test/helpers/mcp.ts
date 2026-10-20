@@ -66,6 +66,8 @@ export async function connectSession(
     cacheDirectory: string;
     clock?: Clock;
     elicitation?: ElicitationAnswer;
+    /** The `elicitation` capability the client declares with an answer, `{}` (form) unless given. */
+    elicitationCapability?: Record<string, unknown>;
   },
 ): Promise<ConnectedSession> {
   const limiter = new RateLimiter(SYSTEM_CLOCK);
@@ -99,7 +101,9 @@ export async function connectSession(
   const elicitation = options.elicitation;
   const client = new Client(
     { name: "test-client", version: "1.2.3" },
-    elicitation === undefined ? {} : { capabilities: { elicitation: {} } },
+    elicitation === undefined
+      ? {}
+      : { capabilities: { elicitation: options.elicitationCapability ?? {} } },
   );
   const connected: ConnectedSession = {
     session,

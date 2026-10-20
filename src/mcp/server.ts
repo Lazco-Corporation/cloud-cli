@@ -37,6 +37,11 @@ import {
   toolSetSignature,
 } from "./tools";
 
+/** How long a quote holds after the API priced it. */
+const QUOTE_LIFETIME_MS = 10 * 60 * 1000;
+/** The shortest time the user gets to answer a spend question. */
+const MIN_ANSWER_WINDOW_MS = 60 * 1000;
+
 /** How often a connected server checks the spec and `whoami` again. */
 export const RECHECK_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -338,16 +343,20 @@ export class McpSession {
     const quote: Quote = readQuote(requireJson(response), "GET /billing/quotes/{quoteId}");
     // The user is asked only about a quote this spend can use.
     if (quote.operationId !== operation.operationId) {
+      const target =
+        typeof quote.operationId === "string"
+          ? `is for ${quote.operationId}`
+          : "names no operation";
       throw new CliError(
         "CLI_INVALID_INPUT",
-        `The quote ${quote.quoteId} is for ${String(quote.operationId)}, not for this tool. Get a quote from its quote tool`,
+        `The quote ${quote.quoteId} ${target}, not this tool's. Get a quote from its quote tool`,
         [{ field: QUOTE_ID_INPUT, message: "must be a quote of this tool's quote tool" }],
       );
     }
-    if (quote.status !== undefined && quote.status !== "open") {
+    if (quote.status !== "open") {
       throw new CliError(
         "CLI_INVALID_INPUT",
-        `The quote ${quote.quoteId} is ${String(quote.status)}. Get a new quote and show it to the user`,
+        `The quote ${quote.quoteId} is ${typeof quote.status === "string" ? quote.status : "not open"}. Get a new quote and show it to the user`,
         [{ field: QUOTE_ID_INPUT, message: "must be an open quote" }],
       );
     }
@@ -382,7 +391,8 @@ export class McpSession {
             required: ["confirm"],
           },
         },
-        { signal: extra.signal },
+        // The user may read the quote for as long as it holds, not only the SDK's 60 seconds.
+        { signal: extra.signal, timeout: this.answerWindowMs(quote) },
       );
     } catch (error) {
       throw new CliError(
@@ -398,6 +408,20 @@ export class McpSession {
         { quoteId: quote.quoteId, action: answer.action },
       );
     }
+  }
+
+  /**
+   * How long the user has to answer: until the quote expires, never past its
+   * 10 minutes, and never under the SDK's 60 seconds, so a local clock that
+   * runs ahead does not cut the question short.
+   */
+  private answerWindowMs(quote: Quote): number {
+    const expiresAt =
+      typeof quote.expiresAt === "string" ? Date.parse(quote.expiresAt) : Number.NaN;
+    const left = expiresAt - this.clock.now();
+    return Number.isFinite(left)
+      ? Math.min(Math.max(left, MIN_ANSWER_WINDOW_MS), QUOTE_LIFETIME_MS)
+      : QUOTE_LIFETIME_MS;
   }
 
   /** Runs an upload tool: an absolute local path only, and the wait for its result. */

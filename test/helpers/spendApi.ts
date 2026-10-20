@@ -29,7 +29,12 @@ function spendRoutes(spec: OpenApiDocument): SpendRoute[] {
       if (operation && annotation?.kind === "spend") {
         routes.push({
           method: method.toUpperCase(),
-          pattern: new RegExp(`^${path.replace(/\{[^}]+\}/g, "[^/]+")}$`),
+          pattern: new RegExp(
+            `^${path
+              .split(/\{[^}]+\}/)
+              .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+              .join("[^/]+")}$`,
+          ),
           operationId: operation.operationId as string,
         });
       }
