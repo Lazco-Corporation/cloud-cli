@@ -42,12 +42,15 @@ infisical run --env=staging --path=/ci --projectId 0248054f-6632-402a-b7b9-290b9
 ```
 
 `LAZCO_CONTRACT_API_URL` points them at another API, such as a local backend.
-`LAZCO_CONTRACT_SPEND=1` adds the one test that spends: it gets a quote with `--dry-run`, buys a Pages pack twice with that quote and one `--idempotency-key`, checks the replay, and deletes the pack.
+`LAZCO_CONTRACT_SPEND=1` adds the one test that spends: it buys a Pages pack with `--yes` and one `--idempotency-key`, checks that its own quote is used and that the account balance fell by exactly the quote, runs it again with that key and that quote to check the replay, and deletes the pack.
 A pack costs a month of it with no refund, so the `contract` job sets it only on a push to `main`.
 The organization needs the `pages` feature and a balance of one pack month.
 The test deletes every pack of the organization that still renews, before and after the purchase, so never run it by hand while a `contract` job of `main` runs.
 
-They read every `read` operation that needs no input, round-trip an SSH key, check the 401, 404, guard and schema errors, walk both list shapes with `--page-all`, check that every `spend` operation requires `Idempotency-Key`, and check the MCP tiers with both tokens.
+They read every `read` operation that needs no input, round-trip an SSH key, check the 401, 404, guard and schema errors, walk both list shapes with `--page-all`, check that every `spend` operation requires `Idempotency-Key` and has a quote operation, and check the MCP tiers with both tokens.
+A spend's `--dry-run` must leave its quote open and charge nothing.
+A bandwidth add-on must ask for its quote first, and the quote's 404 must stop it, because staging has no server to buy one for.
+The MCP spend tier must list each spend tool with its quote tool, quote with the quote tool, and refuse a spend tool call without a quote.
 Every SSH key they create is named `cli-contract-<suffix>`, and each run deletes every such key at its start and its end, so a cancelled run leaves nothing for long.
 The `contract` job runs one at a time, because every run writes to the same organization.
 `async` and `etag` are checked by the fixtures only, because a staging deploy costs credit and a DNS write needs a delegated zone.

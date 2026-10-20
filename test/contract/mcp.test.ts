@@ -74,6 +74,19 @@ const spendTools = operations
   .flatMap((operation) => [operation.toolName as string, operation.quote?.toolName ?? ""])
   .filter(Boolean);
 
+/** The spend tools and quote tools of the features the organization has on. */
+const reachableSpendTools = operations
+  .filter(
+    (operation) =>
+      operation.kind === "spend" && operation.toolName !== null && featureOn(operation),
+  )
+  .flatMap((operation) => [operation.toolName as string, operation.quote?.toolName ?? ""])
+  .filter(Boolean);
+
+function resultText(result: Awaited<ReturnType<Client["callTool"]>>): string {
+  return (result.content as Array<{ type: string; text: string }>)[0]?.text ?? "null";
+}
+
 describe("the MCP tiers on staging", () => {
   test(
     "the default start lists every read tool and nothing else",
@@ -113,9 +126,44 @@ describe("the MCP tiers on staging", () => {
   );
 
   test(
-    "the read token lists read tools only, even with --allow-writes",
+    "--allow-writes --allow-spend adds each spend tool with its quote tool, a quote tool quotes, and a spend tool without a quote sends nothing",
     async () => {
-      const session = await connect(READ_TOKEN, ["--allow-writes"]);
+      const session = await connect(WRITE_TOKEN, ["--allow-writes", "--allow-spend"]);
+      expect(await listedNames(session)).toEqual(
+        [
+          ...expectedTools(new Set(["read", "write", "destructive"])),
+          ...reachableSpendTools,
+        ].sort(),
+      );
+      expect(reachableSpendTools).toContain("labs_pages_create_pack");
+      expect(reachableSpendTools).toContain("labs_pages_quote_create_pack");
+
+      const quoted = await session.callTool({
+        name: "labs_pages_quote_create_pack",
+        arguments: {},
+      });
+      expect(quoted.isError).toBeUndefined();
+      const quote = JSON.parse(resultText(quoted)) as { quoteId: string; operationId: string };
+      expect(quote.operationId).toBe("labs.pages.packs.create");
+
+      const refused = await session.callTool({ name: "labs_pages_create_pack", arguments: {} });
+      expect(refused.isError).toBe(true);
+      expect(JSON.parse(resultText(refused)).error.code).toBe("CLI_INVALID_INPUT");
+
+      const stored = await session.callTool({
+        name: "billing_get_quote",
+        arguments: { quoteId: quote.quoteId },
+      });
+      expect(stored.isError).toBeUndefined();
+      expect(JSON.parse(resultText(stored)).status).toBe("open");
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "the read token lists read tools only, even with --allow-writes --allow-spend",
+    async () => {
+      const session = await connect(READ_TOKEN, ["--allow-writes", "--allow-spend"]);
       expect(await listedNames(session)).toEqual(expectedTools(new Set(["read"])));
       expect(session.getInstructions()).toContain("the token's scope is read");
     },
