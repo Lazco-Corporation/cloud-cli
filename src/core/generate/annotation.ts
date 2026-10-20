@@ -15,6 +15,8 @@ export type Annotation = {
   confirm?: string;
   paginate?: "cursor" | "page";
   upload?: string;
+  /** The `operationId` of a spend operation's quote operation. */
+  quote?: string;
 };
 
 /**
@@ -63,8 +65,8 @@ const COMMAND_WORD = "[a-z0-9][a-z0-9-]*";
 
 /**
  * The shape of the brief, with every key this version reads. A key it does
- * not list is allowed and ignored, so a later key such as `quote` never breaks
- * this version. A known key with an unknown value fails the check.
+ * not list is allowed and ignored, so a later key never breaks this version.
+ * A known key with an unknown value fails the check.
  */
 const ANNOTATION_SCHEMA = {
   type: "object",
@@ -88,6 +90,7 @@ const ANNOTATION_SCHEMA = {
     confirm: { type: "string", minLength: 1 },
     paginate: { enum: ["cursor", "page"] },
     upload: { type: "string", minLength: 1 },
+    quote: { type: "string", minLength: 1 },
   },
 } as const;
 

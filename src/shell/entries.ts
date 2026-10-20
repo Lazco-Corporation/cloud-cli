@@ -24,7 +24,7 @@ export function operationEntry(operation: Operation): CommandEntry {
     description: operation.description,
     kind: operation.kind,
     feature: operation.feature,
-    inputSchema: operation.inputSchema,
+    inputSchema: operation.commandInputSchema,
     positionals: operation.positionals,
     source: { type: "operation", operation },
   };

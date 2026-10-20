@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CliError } from "../errors";
+import { extractValueFlag } from "./valueFlag";
 
 /** The operation flag that gives a key of the caller's choice. */
 export const IDEMPOTENCY_KEY_FLAG = "idempotency-key";
@@ -40,36 +41,6 @@ export function extractIdempotencyKeyFlag(tokens: readonly string[]): {
   key: string | undefined;
   rest: string[];
 } {
-  const rest: string[] = [];
-  let key: string | undefined;
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index] as string;
-    if (token === "--") {
-      rest.push(...tokens.slice(index));
-      break;
-    }
-    const match = /^--idempotency-key(?:=([\s\S]*))?$/.exec(token);
-    if (!match) {
-      rest.push(token);
-      continue;
-    }
-    if (key !== undefined) {
-      throw flagProblem(`--${IDEMPOTENCY_KEY_FLAG} is given twice`);
-    }
-    const next = tokens[index + 1];
-    // `--idempotency-key --yes` forgot the value: never take the next flag as the key.
-    const value = match[1] ?? (next?.startsWith("--") ? undefined : next);
-    if (value === undefined) {
-      throw flagProblem(`--${IDEMPOTENCY_KEY_FLAG} needs a value`);
-    }
-    if (match[1] === undefined) {
-      index += 1;
-    }
-    key = checkIdempotencyKey(value);
-  }
-  return { key, rest };
-}
-
-function flagProblem(message: string): CliError {
-  return new CliError("CLI_INVALID_INPUT", message, [{ field: IDEMPOTENCY_KEY_FLAG, message }]);
+  const { value, rest } = extractValueFlag(tokens, IDEMPOTENCY_KEY_FLAG, checkIdempotencyKey);
+  return { key: value, rest };
 }

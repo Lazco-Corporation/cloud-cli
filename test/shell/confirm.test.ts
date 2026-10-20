@@ -102,7 +102,7 @@ describe("confirmation", () => {
       env(),
     );
     expect(JSON.parse(run.stdout)).toEqual({ taskId: "t-1", password: "once-only" });
-    expect(operationRequests(api.requests)).toEqual(["POST /v1/servers"]);
+    expect(operationRequests(api.requests)).toEqual(["POST /v1/servers/quote", "POST /v1/servers"]);
   });
 
   test("on a pseudo-terminal the typed name lands in the confirm field", async () => {

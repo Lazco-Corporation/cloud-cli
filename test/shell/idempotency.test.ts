@@ -5,6 +5,7 @@ import { closedApiUrl, FakeApi, fakeClock, json, type RecordedRequest } from "..
 import { loadFixture } from "../helpers/fixtures";
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+/** A spend run with a quote it already has, so the key is the only thing these tests look at. */
 const CREATE = [
   "compute",
   "create",
@@ -14,9 +15,18 @@ const CREATE = [
   "txg1",
   "--plan-slug",
   "s1",
+  "--quote-id",
+  "q-1",
+  "--expected-amount",
+  "402.500",
   "--yes",
   "--no-wait",
 ];
+
+/** The error of the one error line, which follows the quote's notice on stderr. */
+function errorOf(stderr: string) {
+  return JSON.parse(stderr.trim().split("\n").at(-1) as string).error;
+}
 
 /**
  * An API that keeps the first answer of each key, as the backend layer does:
@@ -178,7 +188,7 @@ describe("a keyed request that the API refuses", () => {
     const result = await run(CREATE);
     expect(result.code).toBe(1);
     expect(result.stdout).toBe("");
-    expect(JSON.parse(result.stderr).error).toMatchObject({
+    expect(errorOf(result.stderr)).toMatchObject({
       status: 402,
       code: "INSUFFICIENT_CREDIT",
     });
@@ -194,7 +204,7 @@ describe("a keyed request that the API refuses", () => {
       });
     const result = await run([...CREATE, "--idempotency-key", "deploy-42"]);
     expect(result.code).toBe(1);
-    expect(JSON.parse(result.stderr).error).toMatchObject({
+    expect(errorOf(result.stderr)).toMatchObject({
       status: 409,
       code: "IDEMPOTENCY_KEY_INTERRUPTED",
       message: "The first request with this Idempotency-Key stopped before its answer was stored",
@@ -324,7 +334,7 @@ describe("--idempotency-key", () => {
       const result = await run([...CREATE, `--idempotency-key=${value}`]);
       expect(result.code).toBe(1);
       expect(result.stdout).toBe("");
-      const error = JSON.parse(result.stderr).error;
+      const error = errorOf(result.stderr);
       expect(error.code).toBe("CLI_INVALID_INPUT");
       expect(error.details[0].field).toBe("idempotency-key");
       expect(store.api.requests).toEqual([]);
@@ -341,7 +351,7 @@ describe("--idempotency-key", () => {
   test("given twice is CLI_INVALID_INPUT", async () => {
     const result = await run([...CREATE, "--idempotency-key", "a", "--idempotency-key", "b"]);
     expect(result.code).toBe(1);
-    expect(JSON.parse(result.stderr).error.code).toBe("CLI_INVALID_INPUT");
+    expect(errorOf(result.stderr).code).toBe("CLI_INVALID_INPUT");
     expect(store.api.requests).toEqual([]);
   });
 
@@ -352,7 +362,7 @@ describe("--idempotency-key", () => {
     ]) {
       const result = await run(args[0] === "ssh-keys" ? [...args, "--idempotency-key", "k"] : args);
       expect(result.code).toBe(1);
-      expect(JSON.parse(result.stderr).error.details[0]).toEqual({
+      expect(errorOf(result.stderr).details[0]).toEqual({
         field: "idempotency-key",
         message: "--idempotency-key is not a flag of this command",
       });

@@ -48,7 +48,8 @@ function setup() {
   ) =>
     executeOperation(
       operation(command),
-      prepareRequest(operation(command), input, {
+      // A spend request carries its quote, which these tests do not look at.
+      prepareRequest(operation(command), withQuote(command, input), {
         apiUrl: api.apiUrl,
         validator,
         idempotencyKey: "key-1",
@@ -57,6 +58,12 @@ function setup() {
       options,
     );
   return { clock, run };
+}
+
+function withQuote(command: string, input: Record<string, unknown>): Record<string, unknown> {
+  return operation(command).kind === "spend"
+    ? { quoteId: "q-1", expectedAmount: "402.500", ...input }
+    : input;
 }
 
 /** Answers the 202, then the task reads in order. */

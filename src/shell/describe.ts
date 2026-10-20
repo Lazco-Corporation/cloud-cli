@@ -25,6 +25,8 @@ export function describeEntry(entry: CommandEntry): Record<string, unknown> {
     upload: operation?.annotation.upload ?? null,
     // How the operation takes Idempotency-Key. The core sends it, so it is no input field.
     idempotencyKey: operation?.idempotencyKey ?? null,
+    // The quote a spend command asks for first. The command fills quoteId and expectedAmount.
+    quote: operation?.quote?.operationId ?? null,
     feature: entry.feature,
     mcpTool: operation?.toolName ?? null,
     positionals: entry.positionals,

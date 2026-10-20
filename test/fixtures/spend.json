@@ -1,0 +1,1296 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Fixture: the spend and quote operations of the add-spend-quotes phase C spec",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/v1/bandwidth/servers/{serverId}/addons": {
+      "post": {
+        "summary": "Purchase Bandwidth Addon",
+        "description": "Purchase additional bandwidth for a server, and charge the amount of its quote from the organization's account balance. Get the quote first at `POST /v1/bandwidth/servers/{serverId}/addons/quote` with the same body, and send its `quoteId` and `amount` as `quoteId` and `expectedAmount`. Addon expires at end of current billing month.",
+        "operationId": "compute.bandwidthAddons.buy",
+        "x-lazco": {
+          "cli": "compute bandwidth-addons buy",
+          "mcp": {
+            "name": "compute_buy_bandwidth_addon"
+          },
+          "kind": "spend",
+          "quote": "compute.bandwidthAddons.quote-buy"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation. Send the same value again only to retry the same request: within 24 hours it answers the first response, with `Idempotent-Replayed: true`, and runs nothing again. 1 to 255 printable ASCII characters.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["amountGiB", "quoteId", "expectedAmount"],
+                "properties": {
+                  "amountGiB": {
+                    "minimum": 10,
+                    "multipleOf": 10,
+                    "type": "number"
+                  },
+                  "quoteId": {
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The `quoteId` of a quote of this operation, from `POST <this path>/quote`. A quote is used once, by the first request that names it, and expires 10 minutes after it priced the request.",
+                    "type": "string"
+                  },
+                  "expectedAmount": {
+                    "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+                    "description": "The quote's `amount`, the TWD the account balance falls by, as a decimal string of at most 3 decimals, such as `402.500` or `402.5`.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bandwidth/servers/{serverId}/addons/quote": {
+      "post": {
+        "summary": "Quote: Purchase Bandwidth Addon",
+        "description": "Prices `compute.bandwidthAddons.buy` for this request and returns a quote that holds for 10 minutes. Charges nothing and changes nothing. Money is a TWD decimal string with three decimals, and no tax is added: a spend draws on the account balance, and the top-up that filled it was the taxable event. A short balance answers `sufficient: false`, not an error.",
+        "operationId": "compute.bandwidthAddons.quote-buy",
+        "x-lazco": {
+          "cli": "compute bandwidth-addons quote-buy",
+          "mcp": {
+            "name": "compute_quote_buy_bandwidth_addon"
+          },
+          "kind": "write"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["amountGiB"],
+                "properties": {
+                  "amountGiB": {
+                    "minimum": 10,
+                    "multipleOf": 10,
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/quotes/{quoteId}": {
+      "get": {
+        "summary": "Get a quote",
+        "description": "Read a quote of the organization back, with `status` `open`, `used` or `expired`. A quote of another organization, or one older than its 7 days of retention, answers 404 `QUOTE_NOT_FOUND`.",
+        "operationId": "billing.quotes.get",
+        "x-lazco": {
+          "cli": "billing quotes get",
+          "mcp": {
+            "name": "billing_get_quote"
+          },
+          "kind": "read"
+        },
+        "parameters": [
+          {
+            "name": "quoteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 64,
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/labs/pages/packs": {
+      "post": {
+        "summary": "Buy a pack of 5 more sites, and pay its first month from the wallet",
+        "description": "Get the quote first at `POST /v1/labs/pages/packs/quote`, and send its `quoteId` and `amount` as `quoteId` and `expectedAmount`.",
+        "operationId": "labs.pages.packs.create",
+        "x-lazco": {
+          "cli": "labs pages packs create",
+          "mcp": {
+            "name": "labs_pages_create_pack"
+          },
+          "kind": "spend",
+          "feature": "pages",
+          "quote": "labs.pages.packs.quote-create"
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation. Send the same value again only to retry the same request: within 24 hours it answers the first response, with `Idempotent-Replayed: true`, and runs nothing again. 1 to 255 printable ASCII characters.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["quoteId", "expectedAmount"],
+                "properties": {
+                  "quoteId": {
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The `quoteId` of a quote of this operation, from `POST <this path>/quote`. A quote is used once, by the first request that names it, and expires 10 minutes after it priced the request.",
+                    "type": "string"
+                  },
+                  "expectedAmount": {
+                    "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+                    "description": "The quote's `amount`, the TWD the account balance falls by, as a decimal string of at most 3 decimals, such as `402.500` or `402.5`.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/labs/pages/packs/quote": {
+      "post": {
+        "summary": "Quote: Buy a pack of 5 more sites, and pay its first month from the wallet",
+        "description": "Prices `labs.pages.packs.create` for this request and returns a quote that holds for 10 minutes. Charges nothing and changes nothing. Money is a TWD decimal string with three decimals, and no tax is added: a spend draws on the account balance, and the top-up that filled it was the taxable event. A short balance answers `sufficient: false`, not an error.",
+        "operationId": "labs.pages.packs.quote-create",
+        "x-lazco": {
+          "cli": "labs pages packs quote-create",
+          "mcp": {
+            "name": "labs_pages_quote_create_pack"
+          },
+          "kind": "write",
+          "feature": "pages"
+        }
+      }
+    },
+    "/v1/labs/pages/sites/{id}/buyout": {
+      "post": {
+        "summary": "Buy out a site, which removes its overlay. A second call charges nothing.",
+        "description": "Get the quote first at `POST /v1/labs/pages/sites/{id}/buyout/quote`, and send its `quoteId` and `amount` as `quoteId` and `expectedAmount`.",
+        "operationId": "labs.pages.sites.buyout",
+        "x-lazco": {
+          "cli": "labs pages sites buyout",
+          "mcp": {
+            "name": "labs_pages_buyout_site"
+          },
+          "kind": "spend",
+          "feature": "pages",
+          "quote": "labs.pages.sites.quote-buyout"
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation. Send the same value again only to retry the same request: within 24 hours it answers the first response, with `Idempotent-Replayed: true`, and runs nothing again. 1 to 255 printable ASCII characters.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["quoteId", "expectedAmount"],
+                "properties": {
+                  "quoteId": {
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The `quoteId` of a quote of this operation, from `POST <this path>/quote`. A quote is used once, by the first request that names it, and expires 10 minutes after it priced the request.",
+                    "type": "string"
+                  },
+                  "expectedAmount": {
+                    "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+                    "description": "The quote's `amount`, the TWD the account balance falls by, as a decimal string of at most 3 decimals, such as `402.500` or `402.5`.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/labs/pages/sites/{id}/buyout/quote": {
+      "post": {
+        "summary": "Quote: Buy out a site, which removes its overlay. A second call charges nothing.",
+        "description": "Prices `labs.pages.sites.buyout` for this request and returns a quote that holds for 10 minutes. Charges nothing and changes nothing. Money is a TWD decimal string with three decimals, and no tax is added: a spend draws on the account balance, and the top-up that filled it was the taxable event. A short balance answers `sufficient: false`, not an error.",
+        "operationId": "labs.pages.sites.quote-buyout",
+        "x-lazco": {
+          "cli": "labs pages sites quote-buyout",
+          "mcp": {
+            "name": "labs_pages_quote_buyout_site"
+          },
+          "kind": "write",
+          "feature": "pages"
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 64,
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/network-resources/applications/{id}/renewal/pay-from-balance": {
+      "post": {
+        "summary": "Pay the open renewal invoice from the account balance",
+        "description": "Pays the application's open annual renewal invoice in full from the account balance (PAY-185). The application becomes active and its renewal date moves on one year. 402 INSUFFICIENT_BALANCE when the balance cannot cover the whole invoice, 409 INVALID_STATE when no renewal invoice is open, or when the optional invoiceId is not the open one. Get the quote first at `POST /v1/network-resources/applications/{id}/renewal/pay-from-balance/quote`: it names the invoice and its total, and this request pays that invoice for that total. Send its `quoteId` and `amount` as `quoteId` and `expectedAmount`.",
+        "operationId": "networkResources.renewal.payFromBalance",
+        "x-lazco": {
+          "cli": "network-resources renewal pay-from-balance",
+          "mcp": {
+            "name": "network_resources_pay_from_balance_renewal"
+          },
+          "kind": "spend",
+          "feature": "networkResources",
+          "quote": "networkResources.renewal.quote-payFromBalance"
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation. Send the same value again only to retry the same request: within 24 hours it answers the first response, with `Idempotent-Replayed: true`, and runs nothing again. 1 to 255 printable ASCII characters.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["quoteId", "expectedAmount"],
+                "properties": {
+                  "invoiceId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "quoteId": {
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The `quoteId` of a quote of this operation, from `POST <this path>/quote`. A quote is used once, by the first request that names it, and expires 10 minutes after it priced the request.",
+                    "type": "string"
+                  },
+                  "expectedAmount": {
+                    "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+                    "description": "The quote's `amount`, the TWD the account balance falls by, as a decimal string of at most 3 decimals, such as `402.500` or `402.5`.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/network-resources/applications/{id}/renewal/pay-from-balance/quote": {
+      "post": {
+        "summary": "Quote: Pay the open renewal invoice from the account balance",
+        "description": "Prices `networkResources.renewal.payFromBalance` for this request and returns a quote that holds for 10 minutes. Charges nothing and changes nothing. Money is a TWD decimal string with three decimals, and no tax is added: a spend draws on the account balance, and the top-up that filled it was the taxable event. A short balance answers `sufficient: false`, not an error.",
+        "operationId": "networkResources.renewal.quote-payFromBalance",
+        "x-lazco": {
+          "cli": "network-resources renewal quote-pay-from-balance",
+          "mcp": {
+            "name": "network_resources_quote_pay_from_balance_renewal"
+          },
+          "kind": "write",
+          "feature": "networkResources"
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "invoiceId": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers": {
+      "post": {
+        "summary": "Create Server",
+        "description": "Deploy a new VPS server, and charge the amount of its quote from the account balance. Get the quote first at `POST /v1/servers/quote` with the same body, and send its `quoteId` and `amount` as `quoteId` and `expectedAmount`. Returns 202 with a task ID to poll for completion.",
+        "operationId": "compute.servers.create",
+        "x-lazco": {
+          "cli": "compute create",
+          "mcp": {
+            "name": "compute_create_server"
+          },
+          "kind": "spend",
+          "async": "task",
+          "quote": "compute.servers.quote-create"
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation. Send the same value again only to retry the same request: within 24 hours it answers the first response, with `Idempotent-Replayed: true`, and runs nothing again. 1 to 255 printable ASCII characters.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "hostname",
+                  "regionSlug",
+                  "planSlug",
+                  "templateSlug",
+                  "quoteId",
+                  "expectedAmount"
+                ],
+                "properties": {
+                  "hostname": {
+                    "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$",
+                    "minLength": 1,
+                    "maxLength": 253,
+                    "error": "Hostname must be a valid DNS name — letters, digits and hyphens only (no underscores or spaces).",
+                    "type": "string"
+                  },
+                  "regionSlug": {
+                    "pattern": "^[a-z0-9][a-z0-9-]*$",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "type": "string"
+                  },
+                  "planSlug": {
+                    "pattern": "^[a-z0-9][a-z0-9-]*$",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "type": "string"
+                  },
+                  "templateSlug": {
+                    "pattern": "^[a-z0-9][a-z0-9-]*$",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "type": "string"
+                  },
+                  "couponCode": {
+                    "type": "string"
+                  },
+                  "couponGrantId": {
+                    "type": "string"
+                  },
+                  "cloudInit": {
+                    "type": "object",
+                    "properties": {
+                      "sshKeys": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "password": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "networkConfig": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "autoBackup": {
+                    "type": "boolean"
+                  },
+                  "quoteId": {
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The `quoteId` of a quote of this operation, from `POST <this path>/quote`. A quote is used once, by the first request that names it, and expires 10 minutes after it priced the request.",
+                    "type": "string"
+                  },
+                  "expectedAmount": {
+                    "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+                    "description": "The quote's `amount`, the TWD the account balance falls by, as a decimal string of at most 3 decimals, such as `402.500` or `402.5`.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/quote": {
+      "post": {
+        "summary": "Quote: Create Server",
+        "description": "Prices `compute.servers.create` for this request and returns a quote that holds for 10 minutes. Charges nothing and changes nothing. Money is a TWD decimal string with three decimals, and no tax is added: a spend draws on the account balance, and the top-up that filled it was the taxable event. A short balance answers `sufficient: false`, not an error.",
+        "operationId": "compute.servers.quote-create",
+        "x-lazco": {
+          "cli": "compute quote-create",
+          "mcp": {
+            "name": "compute_quote_create_server"
+          },
+          "kind": "write"
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["hostname", "regionSlug", "planSlug", "templateSlug"],
+                "properties": {
+                  "hostname": {
+                    "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$",
+                    "minLength": 1,
+                    "maxLength": 253,
+                    "error": "Hostname must be a valid DNS name — letters, digits and hyphens only (no underscores or spaces).",
+                    "type": "string"
+                  },
+                  "regionSlug": {
+                    "pattern": "^[a-z0-9][a-z0-9-]*$",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "type": "string"
+                  },
+                  "planSlug": {
+                    "pattern": "^[a-z0-9][a-z0-9-]*$",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "type": "string"
+                  },
+                  "templateSlug": {
+                    "pattern": "^[a-z0-9][a-z0-9-]*$",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "type": "string"
+                  },
+                  "couponCode": {
+                    "type": "string"
+                  },
+                  "couponGrantId": {
+                    "type": "string"
+                  },
+                  "cloudInit": {
+                    "type": "object",
+                    "properties": {
+                      "sshKeys": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "password": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "networkConfig": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "autoBackup": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}/auto-backup": {
+      "post": {
+        "summary": "Set Auto Backup",
+        "description": "Enable or disable automatic daily backups. Enabling adds a percentage of the plan price to each renewal, which the quote at `POST /v1/servers/{serverId}/auto-backup/quote` states as its recurring charge. The request itself charges 0 TWD and still names its quote. Disabling takes effect at the end of the paid period — backups and billing continue until then.",
+        "operationId": "compute.autoBackup.set",
+        "x-lazco": {
+          "cli": "compute auto-backup set",
+          "mcp": {
+            "name": "compute_set_auto_backup"
+          },
+          "kind": "spend",
+          "quote": "compute.autoBackup.quote-set"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation. Send the same value again only to retry the same request: within 24 hours it answers the first response, with `Idempotent-Replayed: true`, and runs nothing again. 1 to 255 printable ASCII characters.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["enabled", "quoteId", "expectedAmount"],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "quoteId": {
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The `quoteId` of a quote of this operation, from `POST <this path>/quote`. A quote is used once, by the first request that names it, and expires 10 minutes after it priced the request.",
+                    "type": "string"
+                  },
+                  "expectedAmount": {
+                    "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+                    "description": "The quote's `amount`, the TWD the account balance falls by, as a decimal string of at most 3 decimals, such as `402.500` or `402.5`.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}/auto-backup/quote": {
+      "post": {
+        "summary": "Quote: Set Auto Backup",
+        "description": "Prices `compute.autoBackup.set` for this request and returns a quote that holds for 10 minutes. Charges nothing and changes nothing. Money is a TWD decimal string with three decimals, and no tax is added: a spend draws on the account balance, and the top-up that filled it was the taxable event. A short balance answers `sufficient: false`, not an error.",
+        "operationId": "compute.autoBackup.quote-set",
+        "x-lazco": {
+          "cli": "compute auto-backup quote-set",
+          "mcp": {
+            "name": "compute_quote_set_auto_backup"
+          },
+          "kind": "write"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["enabled"],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}/cancel-renewal": {
+      "delete": {
+        "summary": "Resume Auto-Renewal",
+        "description": "Clear the `cancel_at_period_end` flag. Next renewal cycle will charge the wallet normally. On a server already in `pending_destroy`, it also tries to revive this server and renew it right away, for no more than its quote, which succeeds when the wallet covers the renewal and the deletion deadline has not passed; read the server back to see the outcome. Other resources of the organization come back on the hourly resume sweep. Past that deadline it answers 400 `INVALID_BILLING_STATUS`. Get the quote first at `POST /v1/servers/{serverId}/cancel-renewal/quote`: it is 0 TWD unless the server is overdue in `pending_destroy`.",
+        "operationId": "compute.renewal.resume",
+        "x-lazco": {
+          "cli": "compute renewal resume",
+          "mcp": {
+            "name": "compute_resume_renewal"
+          },
+          "kind": "spend",
+          "quote": "compute.renewal.quote-resume"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation. Send the same value again only to retry the same request: within 24 hours it answers the first response, with `Idempotent-Replayed: true`, and runs nothing again. 1 to 255 printable ASCII characters.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["quoteId", "expectedAmount"],
+                "properties": {
+                  "quoteId": {
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The `quoteId` of a quote of this operation, from `POST <this path>/quote`. A quote is used once, by the first request that names it, and expires 10 minutes after it priced the request.",
+                    "type": "string"
+                  },
+                  "expectedAmount": {
+                    "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+                    "description": "The quote's `amount`, the TWD the account balance falls by, as a decimal string of at most 3 decimals, such as `402.500` or `402.5`.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}/cancel-renewal/quote": {
+      "post": {
+        "summary": "Quote: Resume Auto-Renewal",
+        "description": "Prices `compute.renewal.resume` for this request and returns a quote that holds for 10 minutes. Charges nothing and changes nothing. Money is a TWD decimal string with three decimals, and no tax is added: a spend draws on the account balance, and the top-up that filled it was the taxable event. A short balance answers `sufficient: false`, not an error.",
+        "operationId": "compute.renewal.quote-resume",
+        "x-lazco": {
+          "cli": "compute renewal quote-resume",
+          "mcp": {
+            "name": "compute_quote_resume_renewal"
+          },
+          "kind": "write"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/servers/{serverId}/extra-disk": {
+      "post": {
+        "summary": "Buy Add-on Disk",
+        "description": "Permanently add disk capacity in whole 10 GiB blocks. Charges a prorated amount for the remainder of the current billing period, then a flat monthly fee at every renewal. The capacity CANNOT be reduced or cancelled afterwards - PVE cannot shrink a volume - so the only way to stop the charge is to delete the server. Get the quote first at `POST /v1/servers/{serverId}/extra-disk/quote` with the same body, and send its `quoteId` and `amount` as `quoteId` and `expectedAmount`.",
+        "operationId": "compute.extraDisk.buy",
+        "x-lazco": {
+          "cli": "compute extra-disk buy",
+          "mcp": {
+            "name": "compute_buy_extra_disk"
+          },
+          "kind": "spend",
+          "quote": "compute.extraDisk.quote-buy"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation. Send the same value again only to retry the same request: within 24 hours it answers the first response, with `Idempotent-Replayed: true`, and runs nothing again. 1 to 255 printable ASCII characters.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["amountGiB", "quoteId", "expectedAmount"],
+                "properties": {
+                  "amountGiB": {
+                    "minimum": 10,
+                    "multipleOf": 10,
+                    "type": "number"
+                  },
+                  "quoteId": {
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The `quoteId` of a quote of this operation, from `POST <this path>/quote`. A quote is used once, by the first request that names it, and expires 10 minutes after it priced the request.",
+                    "type": "string"
+                  },
+                  "expectedAmount": {
+                    "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+                    "description": "The quote's `amount`, the TWD the account balance falls by, as a decimal string of at most 3 decimals, such as `402.500` or `402.5`.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}/extra-disk/quote": {
+      "post": {
+        "summary": "Quote: Buy Add-on Disk",
+        "description": "Prices `compute.extraDisk.buy` for this request and returns a quote that holds for 10 minutes. Charges nothing and changes nothing. Money is a TWD decimal string with three decimals, and no tax is added: a spend draws on the account balance, and the top-up that filled it was the taxable event. A short balance answers `sufficient: false`, not an error.",
+        "operationId": "compute.extraDisk.quote-buy",
+        "x-lazco": {
+          "cli": "compute extra-disk quote-buy",
+          "mcp": {
+            "name": "compute_quote_buy_extra_disk"
+          },
+          "kind": "write"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["amountGiB"],
+                "properties": {
+                  "amountGiB": {
+                    "minimum": 10,
+                    "multipleOf": 10,
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}/extra-ips": {
+      "post": {
+        "summary": "Assign Extra IP",
+        "description": "Allocate an additional IPv4 address, charge its first hour from the wallet, and enable it on the host. Get the quote first at `POST /v1/servers/{serverId}/extra-ips/quote`, and send its `quoteId` and `amount` as `quoteId` and `expectedAmount`.",
+        "operationId": "compute.extraIps.add",
+        "x-lazco": {
+          "cli": "compute extra-ips add",
+          "mcp": {
+            "name": "compute_add_extra_ip"
+          },
+          "kind": "spend",
+          "quote": "compute.extraIps.quote-add"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation. Send the same value again only to retry the same request: within 24 hours it answers the first response, with `Idempotent-Replayed: true`, and runs nothing again. 1 to 255 printable ASCII characters.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["quoteId", "expectedAmount"],
+                "properties": {
+                  "quoteId": {
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The `quoteId` of a quote of this operation, from `POST <this path>/quote`. A quote is used once, by the first request that names it, and expires 10 minutes after it priced the request.",
+                    "type": "string"
+                  },
+                  "expectedAmount": {
+                    "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+                    "description": "The quote's `amount`, the TWD the account balance falls by, as a decimal string of at most 3 decimals, such as `402.500` or `402.5`.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}/extra-ips/quote": {
+      "post": {
+        "summary": "Quote: Assign Extra IP",
+        "description": "Prices `compute.extraIps.add` for this request and returns a quote that holds for 10 minutes. Charges nothing and changes nothing. Money is a TWD decimal string with three decimals, and no tax is added: a spend draws on the account balance, and the top-up that filled it was the taxable event. A short balance answers `sufficient: false`, not an error.",
+        "operationId": "compute.extraIps.quote-add",
+        "x-lazco": {
+          "cli": "compute extra-ips quote-add",
+          "mcp": {
+            "name": "compute_quote_add_extra_ip"
+          },
+          "kind": "write"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/servers/{serverId}/reinstall": {
+      "post": {
+        "summary": "Reinstall Server",
+        "description": "Reinstall a server with a Linux or Windows OS template. Body must specify exactly one auth method: an array of existing SSH key IDs, or `generatePassword: true` for a temporary password (returned once). Switching a Linux server to Windows is a paid upgrade — it requires `generatePassword: true`, at least 2 vCPU / 2 GiB RAM, and charges the monthly Windows license (returns 402 when the wallet can't cover it, 422 when the spec is too small). Every reinstall names a quote from `POST /v1/servers/{serverId}/reinstall/quote`, also one of 0 TWD.",
+        "operationId": "compute.servers.reinstall",
+        "x-lazco": {
+          "cli": "compute reinstall",
+          "mcp": false,
+          "kind": "spend",
+          "async": "task",
+          "quote": "compute.servers.quote-reinstall"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation. Send the same value again only to retry the same request: within 24 hours it answers the first response, with `Idempotent-Replayed: true`, and runs nothing again. 1 to 255 printable ASCII characters.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["templateSlug", "quoteId", "expectedAmount"],
+                "properties": {
+                  "templateSlug": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "sshKeyIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "generatePassword": {
+                    "type": "boolean"
+                  },
+                  "quoteId": {
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The `quoteId` of a quote of this operation, from `POST <this path>/quote`. A quote is used once, by the first request that names it, and expires 10 minutes after it priced the request.",
+                    "type": "string"
+                  },
+                  "expectedAmount": {
+                    "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+                    "description": "The quote's `amount`, the TWD the account balance falls by, as a decimal string of at most 3 decimals, such as `402.500` or `402.5`.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}/reinstall/quote": {
+      "post": {
+        "summary": "Quote: Reinstall Server",
+        "description": "Prices `compute.servers.reinstall` for this request and returns a quote that holds for 10 minutes. Charges nothing and changes nothing. Money is a TWD decimal string with three decimals, and no tax is added: a spend draws on the account balance, and the top-up that filled it was the taxable event. A short balance answers `sufficient: false`, not an error.",
+        "operationId": "compute.servers.quote-reinstall",
+        "x-lazco": {
+          "cli": "compute quote-reinstall",
+          "mcp": false,
+          "kind": "write"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["templateSlug"],
+                "properties": {
+                  "templateSlug": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "sshKeyIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "generatePassword": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}/upgrade": {
+      "post": {
+        "summary": "Upgrade Server Plan",
+        "description": "Upgrade your server to a larger plan, and charge the amount of its quote. `POST /v1/servers/{serverId}/upgrade/quote` states the amount first: the price difference prorated over the time left in the paid period, `(newPrice - oldPrice) × remainingMs / (30 days)` at the instant of the quote, rounded once to three decimals and never up to a whole TWD. Send its `quoteId` and `amount` as `quoteId` and `expectedAmount`. Cannot be used to downgrade — the new plan must have all specs ≥ current and a higher monthly price. Each later renewal bills the new plan.",
+        "operationId": "compute.servers.upgrade",
+        "x-lazco": {
+          "cli": "compute upgrade",
+          "mcp": {
+            "name": "compute_upgrade_server"
+          },
+          "kind": "spend",
+          "quote": "compute.servers.quote-upgrade"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation. Send the same value again only to retry the same request: within 24 hours it answers the first response, with `Idempotent-Replayed: true`, and runs nothing again. 1 to 255 printable ASCII characters.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["planSlug", "quoteId", "expectedAmount"],
+                "properties": {
+                  "planSlug": {
+                    "pattern": "^[a-z0-9][a-z0-9-]*$",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "type": "string"
+                  },
+                  "quoteId": {
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The `quoteId` of a quote of this operation, from `POST <this path>/quote`. A quote is used once, by the first request that names it, and expires 10 minutes after it priced the request.",
+                    "type": "string"
+                  },
+                  "expectedAmount": {
+                    "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+                    "description": "The quote's `amount`, the TWD the account balance falls by, as a decimal string of at most 3 decimals, such as `402.500` or `402.5`.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/{serverId}/upgrade/quote": {
+      "post": {
+        "summary": "Quote: Upgrade Server Plan",
+        "description": "Prices `compute.servers.upgrade` for this request and returns a quote that holds for 10 minutes. Charges nothing and changes nothing. Money is a TWD decimal string with three decimals, and no tax is added: a spend draws on the account balance, and the top-up that filled it was the taxable event. A short balance answers `sufficient: false`, not an error.",
+        "operationId": "compute.servers.quote-upgrade",
+        "x-lazco": {
+          "cli": "compute quote-upgrade",
+          "mcp": {
+            "name": "compute_quote_upgrade_server"
+          },
+          "kind": "write"
+        },
+        "parameters": [
+          {
+            "name": "serverId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["planSlug"],
+                "properties": {
+                  "planSlug": {
+                    "pattern": "^[a-z0-9][a-z0-9-]*$",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/t4/pay-now": {
+      "post": {
+        "summary": "Pay the outstanding T4 balance from the wallet",
+        "description": "Collect the owed items that the paid account balance covers, oldest first, while the T4 account is in arrears. Get the quote first at `POST /v1/t4/pay-now/quote`: it lists the items and their total, and this request collects those items and no other. Send its `quoteId` and `amount` as `quoteId` and `expectedAmount`.",
+        "operationId": "t4.balance.pay",
+        "x-lazco": {
+          "cli": "t4 balance pay",
+          "mcp": {
+            "name": "t4_pay_balance"
+          },
+          "kind": "spend",
+          "feature": "t4",
+          "quote": "t4.balance.quote-pay"
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "A unique value, such as a UUID, for this one operation. Send the same value again only to retry the same request: within 24 hours it answers the first response, with `Idempotent-Replayed: true`, and runs nothing again. 1 to 255 printable ASCII characters.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["quoteId", "expectedAmount"],
+                "properties": {
+                  "quoteId": {
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The `quoteId` of a quote of this operation, from `POST <this path>/quote`. A quote is used once, by the first request that names it, and expires 10 minutes after it priced the request.",
+                    "type": "string"
+                  },
+                  "expectedAmount": {
+                    "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+                    "description": "The quote's `amount`, the TWD the account balance falls by, as a decimal string of at most 3 decimals, such as `402.500` or `402.5`.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/t4/pay-now/quote": {
+      "post": {
+        "summary": "Quote: Pay the outstanding T4 balance from the wallet",
+        "description": "Prices `t4.balance.pay` for this request and returns a quote that holds for 10 minutes. Charges nothing and changes nothing. Money is a TWD decimal string with three decimals, and no tax is added: a spend draws on the account balance, and the top-up that filled it was the taxable event. A short balance answers `sufficient: false`, not an error.",
+        "operationId": "t4.balance.quote-pay",
+        "x-lazco": {
+          "cli": "t4 balance quote-pay",
+          "mcp": {
+            "name": "t4_quote_pay_balance"
+          },
+          "kind": "write",
+          "feature": "t4"
+        }
+      }
+    },
+    "/v1/tasks/{taskId}": {
+      "get": {
+        "summary": "Get Task",
+        "description": "Get task status, refreshing from PVE if still in progress",
+        "operationId": "tasks.get",
+        "x-lazco": {
+          "cli": "tasks get",
+          "mcp": {
+            "name": "tasks_get"
+          },
+          "kind": "read"
+        },
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

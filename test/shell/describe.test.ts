@@ -68,12 +68,17 @@ describe("--describe", () => {
       confirm: null,
       feature: null,
       mcpTool: null,
+      quote: "compute.servers.quote-create",
       positionals: [],
       flags: { "--hostname": "hostname", "--region-slug": "regionSlug", "--ssh-keys": "sshKeys" },
     });
     expect(described.inputSchema.type).toBe("object");
     expect(described.inputSchema.required).toContain("regionSlug");
     expect(Object.keys(described.flags)).not.toContain("--cloud-init");
+    // The command fills both from its quote, so neither is an input or a flag.
+    expect(JSON.stringify(described.inputSchema)).not.toContain("quoteId");
+    expect(JSON.stringify(described.inputSchema)).not.toContain("expectedAmount");
+    expect(Object.keys(described.flags)).not.toContain("--quote-id");
   });
 
   test("an etag command names its tool and its ifMatch input", async () => {
@@ -96,7 +101,7 @@ describe("--describe", () => {
     const run = await runLazco(["--api-url", api.apiUrl, "--describe"], cliEnv(home.home));
     expect(run.code).toBe(0);
     const lines = ndjson(run.stdout) as Array<{ command: string; summary: string; kind: string }>;
-    expect(lines).toHaveLength(15 + HANDWRITTEN_COMMANDS.length);
+    expect(lines).toHaveLength(16 + HANDWRITTEN_COMMANDS.length);
     expect(lines.map((line) => line.command)).toEqual(
       expect.arrayContaining([
         "auth login",
@@ -148,7 +153,7 @@ describe("--describe", () => {
     const commands = (ndjson(all.stdout) as Array<{ command: string }>).map((line) => line.command);
     expect(commands).toContain("auth login");
     expect(commands).toContain("mcp install");
-    expect(commands).toHaveLength(17);
+    expect(commands).toHaveLength(18);
 
     const one = await runInProcess(["mcp", "install", "--describe"], {
       env,

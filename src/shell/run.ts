@@ -11,6 +11,15 @@ import {
 import { ApiError, CliError, redactSecrets, toToolError } from "../core/errors";
 import { describeSkip, generateSurface, type Operation } from "../core/generate/operations";
 import { CommandTree, type Resolution } from "../core/generate/tree";
+import {
+  describeQuote,
+  extractQuoteFlags,
+  formatTwd,
+  type GivenQuote,
+  type Quote,
+  quoteFields,
+  readQuote,
+} from "../core/quote";
 import { createAjv } from "../core/request/ajv";
 import { prepareRequest } from "../core/request/build";
 import { ApiClient, type ApiRequest } from "../core/request/client";
@@ -423,12 +432,16 @@ class Shell {
       entry.source.type === "operation" && entry.source.operation.idempotencyKey === "required"
         ? extractIdempotencyKeyFlag(tokens)
         : { key: undefined, rest: [...tokens] };
+    const quoteFlags =
+      entry.source.type === "operation" && entry.source.operation.kind === "spend"
+        ? extractQuoteFlags(keyFlag.rest)
+        : { given: undefined, rest: keyFlag.rest };
     const payloadText = this.flags.json === "-" ? await readAll(this.io.stdin) : this.flags.json;
     const payload = payloadText === undefined ? undefined : parsePayload(payloadText);
     const input = buildInput({
       schema: entry.inputSchema,
       positionals: entry.positionals,
-      tokens: keyFlag.rest,
+      tokens: quoteFlags.rest,
       payload,
     });
     const output = { human: this.flags.human, fields: this.flags.fields, secrets: this.secrets() };
@@ -458,15 +471,37 @@ class Shell {
         validator: this.validator,
         idempotencyKey,
       });
-    checkBeforeConfirm(operation, input, prepare);
+    checkBeforeConfirm(operation, () => {
+      if (operation.kind !== "spend") {
+        prepare(input);
+        return;
+      }
+      // quoteId and expectedAmount are no input of the command, so --json cannot carry them.
+      this.validator.check(operation.commandInputSchema, input);
+      // The spend request is checked with the quote it will carry, or a stand-in until it comes.
+      prepare({ ...input, ...quoteFields(quoteFlags.given ?? STAND_IN_QUOTE) });
+    });
     try {
-      await this.sendOperation(entry, operation, input, prepare, output);
+      if (operation.kind === "spend" && operation.quote !== null) {
+        await this.sendSpend(
+          entry,
+          operation,
+          operation.quote,
+          input,
+          quoteFlags.given,
+          prepare,
+          output,
+        );
+      } else {
+        await this.sendOperation(entry, operation, input, prepare, output);
+      }
     } catch (error) {
       // A key the user never saw is the only way back to the first result.
       if (
         operation.idempotencyKey === "required" &&
         keyFlag.key === undefined &&
         idempotencyKey !== undefined &&
+        !BEFORE_KEYED_REQUEST.has(error as object) &&
         outcomeUnknown(error)
       ) {
         writeNotice(
@@ -476,6 +511,123 @@ class Shell {
       }
       throw error;
     }
+  }
+
+  /**
+   * Quotes, shows the quote on stderr, confirms, then sends the spend request
+   * with the quote. `--dry-run` sends the quote request only, and prints the
+   * spend request it would send with the quote. A quote the caller gave with
+   * `--quote-id` and `--expected-amount` needs no quote request. A refused
+   * quote is never replaced by a new one, because that is a price nobody saw.
+   */
+  private async sendSpend(
+    entry: CommandEntry,
+    operation: Operation,
+    quoteOperation: Operation,
+    input: Record<string, unknown>,
+    given: GivenQuote | undefined,
+    prepare: (input: Record<string, unknown>) => ApiRequest,
+    output: { human: boolean; fields: string[] | undefined; secrets: string[] },
+  ): Promise<void> {
+    const session = await this.session();
+    const needsCredential = given === undefined || !this.flags.dryRun;
+    const client = this.client(
+      session.apiUrl,
+      needsCredential ? await this.credential() : undefined,
+    );
+    let quote: Quote | null = null;
+    if (given === undefined) {
+      try {
+        quote = await this.requestQuote(client, quoteOperation, input);
+      } catch (error) {
+        if (error !== null && typeof error === "object") {
+          BEFORE_KEYED_REQUEST.add(error);
+        }
+        throw error;
+      }
+    }
+    const fields = quoteFields(quote ?? (given as GivenQuote));
+    if (this.flags.dryRun) {
+      const request = prepare({ ...input, ...fields });
+      writeResult(
+        this.io,
+        { record: { ...dryRunPreview(client, operation, request), quote } },
+        output,
+      );
+      return;
+    }
+    if (quote !== null) {
+      for (const line of describeQuote(quote)) {
+        writeNotice(this.io, line);
+      }
+    } else {
+      writeNotice(
+        this.io,
+        `quote ${(given as GivenQuote).quoteId}: ${formatTwd((given as GivenQuote).amount)} from the account balance`,
+      );
+    }
+    let confirmed: Record<string, unknown>;
+    try {
+      confirmed = await confirmCommand(
+        {
+          command: entry.command,
+          kind: entry.kind,
+          confirmField: operation.annotation.confirm,
+          question: `Spend ${formatTwd(fields.expectedAmount)} from the account balance? [y/N] `,
+        },
+        input,
+        { io: this.io, yes: this.flags.yes, flagOf: (property) => flagOf(entry, property) },
+      );
+    } catch (error) {
+      // The price stays readable in the error, so a script can decide on it.
+      if (quote !== null && error instanceof CliError && error.code === "CLI_CONFIRM_REQUIRED") {
+        const details =
+          error.details !== null && typeof error.details === "object" ? error.details : {};
+        throw new CliError(error.code, error.message, { ...details, quote });
+      }
+      throw error;
+    }
+    const body = await executeOperation(
+      operation,
+      prepare({ ...confirmed, ...fields }),
+      { client, clock: this.clock },
+      {
+        wait: this.flags.wait,
+        timeoutSeconds: this.flags.timeoutSeconds,
+        onTask: (task) => writeNotice(this.io, describeTask(task)),
+      },
+    );
+    writeResult(this.io, Array.isArray(body) ? { list: body } : { record: body }, output);
+  }
+
+  /**
+   * Sends a spend command's quote request with the input the quote operation
+   * takes: the same path parameters and priced fields. A quote stores a
+   * quote and charges nothing.
+   */
+  private async requestQuote(
+    client: ApiClient,
+    quoteOperation: Operation,
+    input: Record<string, unknown>,
+  ): Promise<Quote> {
+    const session = await this.session();
+    const taken = Object.keys((quoteOperation.inputSchema.properties ?? {}) as object);
+    const quoteInput = Object.fromEntries(
+      Object.entries(input).filter(([name]) => taken.includes(name)),
+    );
+    const request = prepareRequest(quoteOperation, quoteInput, {
+      apiUrl: session.apiUrl,
+      validator: this.validator,
+      // Never the spend's key: the quote is another request.
+      idempotencyKey: quoteOperation.idempotencyKey === null ? undefined : newIdempotencyKey(),
+    });
+    const body = await executeOperation(
+      quoteOperation,
+      request,
+      { client, clock: this.clock },
+      { wait: false, timeoutSeconds: 0 },
+    );
+    return readQuote(body, `${request.method} ${client.url(request)}`);
   }
 
   /** Confirms, then sends an operation's request, or prints it for `--dry-run`. */
@@ -603,6 +755,15 @@ class Shell {
   }
 }
 
+/** The quote fields a spend input is checked with before its quote is known. */
+const STAND_IN_QUOTE: GivenQuote = { quoteId: "stand-in", amount: "0" };
+
+/**
+ * Errors that ended a spend command before its keyed request was sent, such
+ * as a failed quote request, after which nothing was spent.
+ */
+const BEFORE_KEYED_REQUEST = new WeakSet<object>();
+
 function dryRunPreview(
   client: ApiClient,
   operation: Operation,
@@ -679,13 +840,9 @@ function describeTask(task: Task): string {
  * Checks the input before a confirmation is asked, so a doomed command never
  * asks. The `confirm` field may still be missing, because the answer fills it.
  */
-function checkBeforeConfirm(
-  operation: Operation,
-  input: Record<string, unknown>,
-  prepare: (input: Record<string, unknown>) => ApiRequest,
-): void {
+function checkBeforeConfirm(operation: Operation, check: () => void): void {
   try {
-    prepare(input);
+    check();
   } catch (error) {
     const field = operation.annotation.confirm;
     const onlyConfirmMissing =
