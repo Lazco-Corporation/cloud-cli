@@ -212,6 +212,23 @@ describe("a spend command quotes, asks, and then spends", () => {
     expect(result.stderr).toContain(`--quote-id 'q '\\''x' --expected-amount 100.000`);
   });
 
+  test("an open body still takes no quoteId or expectedAmount from --json", async () => {
+    const spec = loadFixture("spend");
+    const schema =
+      spec.paths["/v1/servers/{serverId}/upgrade"]?.post?.requestBody?.content?.["application/json"]
+        ?.schema;
+    if (!schema) throw new Error("fixture changed");
+    schema.additionalProperties = true;
+    state.spec = spec;
+    const result = await run([...UPGRADE, "--yes", "--json", '{"quoteId":"q-x"}']);
+    expect(result.code).toBe(1);
+    expect(lastError(result.stderr)).toMatchObject({
+      code: "CLI_INVALID_INPUT",
+      details: [{ field: "quoteId", message: "is not an input of this command" }],
+    });
+    expect(sentRoutes(api)).toEqual([]);
+  });
+
   test("an open quote schema gets the whole input, so it prices what the spend sends", async () => {
     const spec = loadFixture("spend");
     for (const path of ["/v1/servers/{serverId}/upgrade", "/v1/servers/{serverId}/upgrade/quote"]) {
@@ -393,10 +410,12 @@ describe("--quote-id and --expected-amount", () => {
 
 describe("a refused quote is never retried with a new one", () => {
   for (const code of [
+    "QUOTE_NOT_FOUND",
     "QUOTE_EXPIRED",
     "QUOTE_ALREADY_USED",
-    "QUOTE_PRICE_CHANGED",
+    "QUOTE_REQUEST_MISMATCH",
     "QUOTE_AMOUNT_MISMATCH",
+    "QUOTE_PRICE_CHANGED",
   ]) {
     test(`${code} passes through, exits 1, and sends nothing more`, async () => {
       state.spendAnswer = () =>

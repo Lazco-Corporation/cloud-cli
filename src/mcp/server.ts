@@ -42,6 +42,18 @@ const QUOTE_LIFETIME_MS = 10 * 60 * 1000;
 /** The shortest time the user gets to answer a spend question. */
 const MIN_ANSWER_WINDOW_MS = 60 * 1000;
 
+/**
+ * How long the user has to answer a spend question: until the quote
+ * expires, never past its 10 minutes, and never under the SDK's 60 seconds,
+ * so a local clock that runs ahead does not cut the question short.
+ */
+export function answerWindowMs(expiresAt: unknown, now: number): number {
+  const left = (typeof expiresAt === "string" ? Date.parse(expiresAt) : Number.NaN) - now;
+  return Number.isFinite(left)
+    ? Math.min(Math.max(left, MIN_ANSWER_WINDOW_MS), QUOTE_LIFETIME_MS)
+    : QUOTE_LIFETIME_MS;
+}
+
 /** How often a connected server checks the spec and `whoami` again. */
 export const RECHECK_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -392,7 +404,7 @@ export class McpSession {
           },
         },
         // The user may read the quote for as long as it holds, not only the SDK's 60 seconds.
-        { signal: extra.signal, timeout: this.answerWindowMs(quote) },
+        { signal: extra.signal, timeout: answerWindowMs(quote.expiresAt, this.clock.now()) },
       );
     } catch (error) {
       throw new CliError(
@@ -408,20 +420,6 @@ export class McpSession {
         { quoteId: quote.quoteId, action: answer.action },
       );
     }
-  }
-
-  /**
-   * How long the user has to answer: until the quote expires, never past its
-   * 10 minutes, and never under the SDK's 60 seconds, so a local clock that
-   * runs ahead does not cut the question short.
-   */
-  private answerWindowMs(quote: Quote): number {
-    const expiresAt =
-      typeof quote.expiresAt === "string" ? Date.parse(quote.expiresAt) : Number.NaN;
-    const left = expiresAt - this.clock.now();
-    return Number.isFinite(left)
-      ? Math.min(Math.max(left, MIN_ANSWER_WINDOW_MS), QUOTE_LIFETIME_MS)
-      : QUOTE_LIFETIME_MS;
   }
 
   /** Runs an upload tool: an absolute local path only, and the wait for its result. */

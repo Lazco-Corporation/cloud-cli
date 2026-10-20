@@ -9,7 +9,12 @@ import {
   type PathEnvironment,
 } from "../config/paths";
 import { ApiError, CliError, redactSecrets, toToolError } from "../core/errors";
-import { describeSkip, generateSurface, type Operation } from "../core/generate/operations";
+import {
+  describeSkip,
+  generateSurface,
+  type Operation,
+  QUOTE_INPUTS,
+} from "../core/generate/operations";
 import { CommandTree, type Resolution } from "../core/generate/tree";
 import {
   describeQuote,
@@ -476,7 +481,16 @@ class Shell {
         prepare(input);
         return;
       }
-      // quoteId and expectedAmount are no input of the command, so --json cannot carry them.
+      // quoteId and expectedAmount are no input of the command, so --json cannot carry them,
+      // even when the body is open.
+      const carried = QUOTE_INPUTS.filter((name) => Object.hasOwn(input, name));
+      if (carried.length > 0) {
+        throw new CliError(
+          "CLI_INVALID_INPUT",
+          "The command fills quoteId and expectedAmount from its quote: give --quote-id and --expected-amount instead",
+          carried.map((field) => ({ field, message: "is not an input of this command" })),
+        );
+      }
       guardPathParameters(operation.pathParameters, input);
       this.validator.check(operation.commandInputSchema, input);
       if (quoteFlags.given !== undefined) {

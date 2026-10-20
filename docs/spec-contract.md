@@ -96,7 +96,7 @@ An MCP spend tool takes `quoteId` and `expectedAmount` as required inputs, and i
 Both register only with `--allow-writes --allow-spend`, and a quote tool never registers without its spend tool.
 With elicitation, a spend tool reads the quote back and asks only when its `operationId` is the tool's operation, its `status` is `open`, and its `amount` equals `expectedAmount`.
 Any other quote is `CLI_INVALID_INPUT`, with no question and no spend.
-The question waits until the quote expires, for 60 seconds at least.
+The question waits until the quote expires, for 60 seconds at least and 10 minutes at most.
 
 ## Idempotency-Key
 

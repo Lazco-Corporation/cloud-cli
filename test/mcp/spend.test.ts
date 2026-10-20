@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { answerWindowMs } from "../../src/mcp/server";
 import { FAKE_TOKEN, makeHome } from "../helpers/cli";
 import { type FakeApi, json } from "../helpers/fakeApi";
 import {
@@ -251,6 +252,25 @@ describe("a spend tool", () => {
       error: { status: 409, code: "QUOTE_EXPIRED", quoteId: "q-up", amount: "100.000" },
     });
     expect(sentRoutes(api)).toEqual(["POST /v1/servers/srv-1/upgrade"]);
+  });
+});
+
+describe("the time to answer", () => {
+  const now = Date.parse("2026-10-20T00:00:00.000Z");
+
+  test("is the time the quote has left", () => {
+    expect(answerWindowMs("2026-10-20T00:07:00.000Z", now)).toBe(7 * 60 * 1000);
+  });
+
+  test("is 60 seconds at least, so a clock that runs ahead does not cut it short", () => {
+    expect(answerWindowMs("2026-10-20T00:00:20.000Z", now)).toBe(60 * 1000);
+    expect(answerWindowMs("2026-10-19T23:00:00.000Z", now)).toBe(60 * 1000);
+  });
+
+  test("is 10 minutes at most, and 10 minutes when the expiry cannot be read", () => {
+    expect(answerWindowMs("2026-10-20T01:00:00.000Z", now)).toBe(10 * 60 * 1000);
+    expect(answerWindowMs(undefined, now)).toBe(10 * 60 * 1000);
+    expect(answerWindowMs("soon", now)).toBe(10 * 60 * 1000);
   });
 });
 
