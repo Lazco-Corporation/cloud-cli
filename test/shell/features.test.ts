@@ -33,7 +33,7 @@ describe("feature hiding", () => {
     const described = await runLazco(["--api-url", api.apiUrl, "--describe"], signedIn());
     expect(described.code).toBe(0);
     const commands = commandsOf(described.stdout);
-    expect(commands).toHaveLength(13 + HANDWRITTEN_COMMANDS.length);
+    expect(commands).toHaveLength(14 + HANDWRITTEN_COMMANDS.length);
     expect(commands.filter((command) => command.startsWith("dns "))).toEqual([]);
     const help = await runLazco(["--api-url", api.apiUrl, "--help"], signedIn());
     expect(help.stdout).toContain("compute");
@@ -52,7 +52,7 @@ describe("feature hiding", () => {
 
   test("with no credential nothing is hidden and whoami is not asked", async () => {
     const run = await runLazco(["--api-url", api.apiUrl, "--describe"], cliEnv(home.home));
-    expect(commandsOf(run.stdout)).toHaveLength(15 + HANDWRITTEN_COMMANDS.length);
+    expect(commandsOf(run.stdout)).toHaveLength(16 + HANDWRITTEN_COMMANDS.length);
     expect(api.requests.map((request) => request.path)).not.toContain("/v1/whoami");
   });
 
@@ -82,7 +82,7 @@ describe("feature hiding", () => {
         : handler(request);
     const run = await runLazco(["--api-url", api.apiUrl, "--describe"], signedIn());
     expect(run.code).toBe(0);
-    expect(commandsOf(run.stdout)).toHaveLength(15 + HANDWRITTEN_COMMANDS.length);
+    expect(commandsOf(run.stdout)).toHaveLength(16 + HANDWRITTEN_COMMANDS.length);
     expect(run.stderr).toContain("no command is hidden");
   });
 });

@@ -26,7 +26,13 @@
       "post": {
         "operationId": "compute.servers.create",
         "summary": "Create a server",
-        "x-lazco": { "cli": "compute create", "mcp": false, "kind": "spend", "async": "task" },
+        "x-lazco": {
+          "cli": "compute create",
+          "mcp": false,
+          "kind": "spend",
+          "async": "task",
+          "quote": "compute.servers.quote-create"
+        },
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -40,6 +46,38 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["hostname", "regionSlug", "planSlug", "quoteId", "expectedAmount"],
+                "properties": {
+                  "hostname": { "type": "string", "minLength": 1 },
+                  "regionSlug": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+                  "planSlug": { "type": "string" },
+                  "sshKeys": { "type": "array", "items": { "type": "string" } },
+                  "autoBackup": { "type": "boolean" },
+                  "diskGiB": { "type": "integer", "minimum": 10 },
+                  "cloudInit": {
+                    "type": "object",
+                    "properties": { "userData": { "type": "string" } }
+                  },
+                  "quoteId": { "type": "string", "minLength": 1, "maxLength": 64 },
+                  "expectedAmount": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]{1,3})?$" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/servers/quote": {
+      "post": {
+        "operationId": "compute.servers.quote-create",
+        "summary": "Quote a new server",
+        "x-lazco": { "cli": "compute quote-create", "mcp": false, "kind": "write" },
         "requestBody": {
           "required": true,
           "content": {

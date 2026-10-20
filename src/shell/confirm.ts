@@ -8,6 +8,8 @@ export type ConfirmTarget = {
   kind: OperationKind;
   /** The input that must hold the resource name, from `x-lazco.confirm`. */
   confirmField: string | undefined;
+  /** The `[y/N]` question, in place of the one that names the kind. */
+  question?: string;
 };
 
 /** Asks one question on stderr and reads one line of a terminal, trimmed. */
@@ -73,7 +75,7 @@ export async function confirmCommand(
     return { ...input, [field]: name };
   }
   const answer = (
-    await ask(options.io, `${command} is ${target.kind}. Continue? [y/N] `)
+    await ask(options.io, target.question ?? `${command} is ${target.kind}. Continue? [y/N] `)
   ).toLowerCase();
   if (answer !== "y" && answer !== "yes") {
     throw new CliError("CLI_CONFIRM_REQUIRED", `${command} was not confirmed`, {

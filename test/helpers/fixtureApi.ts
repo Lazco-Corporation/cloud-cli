@@ -1,6 +1,7 @@
 import type { OpenApiDocument } from "../../src/core/spec/types";
 import { FakeApi, json, type RecordedRequest } from "./fakeApi";
 import { loadFixture } from "./fixtures";
+import { quoteBody } from "./quotes";
 
 /**
  * What the fixture API answers. A test may change any field while the API
@@ -60,6 +61,9 @@ export function fixtureApi(state: FixtureState = {}): FakeApi {
         status: "running",
         ipv4: "192.0.2.10",
       });
+    }
+    if (route === "POST /v1/servers/quote") {
+      return json(201, quoteBody());
     }
     if (route === "POST /v1/servers") {
       return json(202, { taskId: "t-1", password: "once-only" });

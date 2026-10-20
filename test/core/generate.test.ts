@@ -39,6 +39,7 @@ describe("skips", () => {
   const expected: Record<(typeof FIXTURE_NAMES)[number], Array<[string, SkipReason]>> = {
     surface: [],
     pages: [],
+    spend: [],
     skips: [
       ["teleports.create", "invalid-annotation"],
       ["jobs.create", "invalid-annotation"],
@@ -169,6 +170,7 @@ describe("surface", () => {
       "compute get",
       "compute list",
       "compute power set",
+      "compute quote-create",
       "compute snapshots delete",
       "dns records list",
       "dns records set",
@@ -295,6 +297,239 @@ describe("surface", () => {
   });
 });
 
+describe("spend operations and their quotes", () => {
+  const { operations } = surfaceOf("spend");
+  const spends = operations.filter((operation) => operation.kind === "spend");
+
+  test("every spend operation of the phase C spec is a command linked to its quote operation", () => {
+    expect(spends.map((operation) => operation.operationId).sort()).toEqual([
+      "compute.autoBackup.set",
+      "compute.bandwidthAddons.buy",
+      "compute.extraDisk.buy",
+      "compute.extraIps.add",
+      "compute.renewal.resume",
+      "compute.servers.create",
+      "compute.servers.reinstall",
+      "compute.servers.upgrade",
+      "labs.pages.packs.create",
+      "labs.pages.sites.buyout",
+      "networkResources.renewal.payFromBalance",
+      "t4.balance.pay",
+    ]);
+    for (const spend of spends) {
+      expect(spend.quote?.operationId).toBe(spend.annotation.quote as string);
+      expect(spend.quote?.kind).toBe("write");
+      expect(spend.quote?.isQuote).toBe(true);
+      expect(spend.isQuote).toBe(false);
+    }
+    const quotes = operations.filter((operation) => operation.isQuote);
+    expect(quotes).toHaveLength(12);
+    expect(byCommand(operations, "billing quotes get").isQuote).toBe(false);
+  });
+
+  test("the command input has no quoteId and no expectedAmount, the request input requires both", () => {
+    const upgrade = byCommand(operations, "compute upgrade");
+    expect(Object.keys(upgrade.commandInputSchema.properties as object)).toEqual([
+      "serverId",
+      "planSlug",
+    ]);
+    expect(upgrade.commandInputSchema.required).toEqual(["serverId", "planSlug"]);
+    expect(upgrade.inputSchema.required).toEqual([
+      "serverId",
+      "planSlug",
+      "quoteId",
+      "expectedAmount",
+    ]);
+    for (const spend of spends) {
+      const command = JSON.stringify(spend.commandInputSchema);
+      expect(command).not.toContain("quoteId");
+      expect(command).not.toContain("expectedAmount");
+      // The quote operation takes what the command takes.
+      expect(Object.keys(spend.commandInputSchema.properties as object).sort()).toEqual(
+        Object.keys(spend.quote?.inputSchema.properties as object).sort(),
+      );
+    }
+    const quoteCommand = byCommand(operations, "compute quote-upgrade");
+    expect(quoteCommand.commandInputSchema).toBe(quoteCommand.inputSchema);
+  });
+
+  test("reinstall keeps mcp false on the spend and on its quote", () => {
+    expect(byCommand(operations, "compute reinstall").toolName).toBeNull();
+    expect(byCommand(operations, "compute quote-reinstall").toolName).toBeNull();
+    expect(byCommand(operations, "compute create").toolName).toBe("compute_create_server");
+    expect(byCommand(operations, "compute quote-create").toolName).toBe(
+      "compute_quote_create_server",
+    );
+  });
+
+  test("a spend operation without x-lazco.quote is no command", () => {
+    const document = loadFixture("spend");
+    const upgrade = document.paths["/v1/servers/{serverId}/upgrade"]?.post;
+    if (!upgrade) throw new Error("fixture changed");
+    const { quote: _quote, ...rest } = upgrade["x-lazco"] as Record<string, unknown>;
+    upgrade["x-lazco"] = rest;
+    const generated = generateSurface(document, ajv);
+    expect(generated.skipped.map((skip) => [skip.operationId, skip.reason])).toEqual([
+      ["compute.servers.upgrade", "no-quote"],
+    ]);
+    expect(generated.operations.map((operation) => operation.command.join(" "))).not.toContain(
+      "compute upgrade",
+    );
+  });
+
+  test("a spend operation whose quote operation is missing is no command", () => {
+    const document = loadFixture("spend");
+    delete document.paths["/v1/servers/{serverId}/upgrade/quote"];
+    const generated = generateSurface(document, ajv);
+    expect(generated.skipped).toEqual([
+      expect.objectContaining({
+        operationId: "compute.servers.upgrade",
+        reason: "no-quote",
+        message:
+          'its quote operation "compute.servers.quote-upgrade" is not in the spec, or is skipped',
+      }),
+    ]);
+  });
+
+  test("a spend operation whose quote operation is skipped is no command, and the quote stays a quote", () => {
+    const document = loadFixture("spend");
+    const quote = document.paths["/v1/servers/{serverId}/upgrade/quote"]?.post;
+    const create = document.paths["/v1/servers"]?.post;
+    if (!quote || !create) throw new Error("fixture changed");
+    quote["x-lazco"] = { cli: "compute quote-upgrade", kind: "write" };
+    // A spend that is skipped for its own reason still marks its quote.
+    create.parameters?.push({ name: "X-Other", in: "header", required: true });
+    const generated = generateSurface(document, ajv);
+    expect(generated.skipped.map((skip) => [skip.operationId, skip.reason]).sort()).toEqual([
+      ["compute.servers.create", "unsupported-parameter"],
+      ["compute.servers.quote-upgrade", "invalid-annotation"],
+      ["compute.servers.upgrade", "no-quote"],
+    ]);
+    expect(byCommand(generated.operations, "compute quote-create").isQuote).toBe(true);
+  });
+
+  test("the quote of a hidden spend operation stays a quote", () => {
+    const document = loadFixture("spend");
+    const upgrade = document.paths["/v1/servers/{serverId}/upgrade"]?.post;
+    if (!upgrade) throw new Error("fixture changed");
+    upgrade["x-lazco"] = { ...(upgrade["x-lazco"] as Record<string, unknown>), expose: false };
+    const { operations: changed } = generateSurface(document, ajv);
+    expect(changed.map((operation) => operation.command.join(" "))).not.toContain(
+      "compute upgrade",
+    );
+    expect(byCommand(changed, "compute quote-upgrade").isQuote).toBe(true);
+  });
+
+  test("a spend operation whose body does not require both quote fields is no command", () => {
+    const document = loadFixture("spend");
+    const schema = document.paths["/v1/servers/{serverId}/upgrade"]?.post?.requestBody?.content?.[
+      "application/json"
+    ]?.schema as { required: string[] } | undefined;
+    if (!schema) throw new Error("fixture changed");
+    schema.required = schema.required.filter((name) => name !== "expectedAmount");
+    const generated = generateSurface(document, ajv);
+    expect(generated.skipped).toEqual([
+      expect.objectContaining({
+        operationId: "compute.servers.upgrade",
+        reason: "unsupported-body",
+      }),
+    ]);
+  });
+
+  for (const kind of ["read", "destructive"] as const) {
+    test(`a quote operation of kind ${kind} is refused`, () => {
+      const document = loadFixture("spend");
+      const quote = document.paths["/v1/servers/{serverId}/upgrade/quote"]?.post;
+      if (!quote) throw new Error("fixture changed");
+      (quote["x-lazco"] as Record<string, unknown>).kind = kind;
+      const generated = generateSurface(document, ajv);
+      expect(generated.skipped).toEqual([
+        expect.objectContaining({
+          operationId: "compute.servers.upgrade",
+          reason: "no-quote",
+          message: `its quote operation "compute.servers.quote-upgrade" is ${kind}, not write`,
+        }),
+      ]);
+    });
+  }
+
+  test("a quote name that points at a read operation never hides that read operation", () => {
+    const document = loadFixture("spend");
+    const upgrade = document.paths["/v1/servers/{serverId}/upgrade"]?.post;
+    if (!upgrade) throw new Error("fixture changed");
+    (upgrade["x-lazco"] as Record<string, unknown>).quote = "billing.quotes.get";
+    const generated = generateSurface(document, ajv);
+    expect(generated.skipped.map((skip) => skip.operationId)).toEqual(["compute.servers.upgrade"]);
+    expect(byCommand(generated.operations, "billing quotes get").isQuote).toBe(false);
+  });
+
+  test("a spend operation that does not require Idempotency-Key is no command", () => {
+    const document = loadFixture("spend");
+    const upgrade = document.paths["/v1/servers/{serverId}/upgrade"]?.post;
+    const header = upgrade?.parameters?.find(
+      (parameter) => "name" in parameter && parameter.name === "Idempotency-Key",
+    );
+    if (!header || "$ref" in header) throw new Error("fixture changed");
+    header.required = false;
+    expect(generateSurface(document, ajv).skipped).toEqual([
+      expect.objectContaining({
+        operationId: "compute.servers.upgrade",
+        reason: "unsupported-parameter",
+      }),
+    ]);
+  });
+
+  test("a quote field that is a parameter, not a body property, is refused", () => {
+    const document = loadFixture("spend");
+    const upgrade = document.paths["/v1/servers/{serverId}/upgrade"]?.post;
+    const schema = upgrade?.requestBody?.content?.["application/json"]?.schema as
+      | { properties: Record<string, unknown>; required: string[] }
+      | undefined;
+    if (!upgrade?.parameters || !schema) throw new Error("fixture changed");
+    delete schema.properties.quoteId;
+    schema.required = schema.required.filter((name) => name !== "quoteId");
+    upgrade.parameters.push({
+      name: "quoteId",
+      in: "query",
+      required: true,
+      schema: { type: "string" },
+    });
+    expect(generateSurface(document, ajv).skipped).toEqual([
+      expect.objectContaining({
+        operationId: "compute.servers.upgrade",
+        reason: "unsupported-body",
+      }),
+    ]);
+  });
+
+  test("a spend without a usable quote never makes another operation a duplicate", () => {
+    const document = loadFixture("spend");
+    delete document.paths["/v1/servers/{serverId}/upgrade/quote"];
+    const quote = document.paths["/v1/servers/{serverId}/extra-ips/quote"]?.post;
+    if (!quote) throw new Error("fixture changed");
+    // The extra IP quote now shares its command with the upgrade, which is dropped first.
+    (quote["x-lazco"] as Record<string, unknown>).cli = "compute upgrade";
+    const generated = generateSurface(document, ajv);
+    expect(generated.skipped.map((skip) => [skip.operationId, skip.reason])).toEqual([
+      ["compute.servers.upgrade", "no-quote"],
+    ]);
+    expect(byCommand(generated.operations, "compute upgrade").operationId).toBe(
+      "compute.extraIps.quote-add",
+    );
+  });
+
+  test("a quote operation that is a spend operation itself is refused", () => {
+    const document = loadFixture("spend");
+    const upgrade = document.paths["/v1/servers/{serverId}/upgrade"]?.post;
+    if (!upgrade) throw new Error("fixture changed");
+    (upgrade["x-lazco"] as Record<string, unknown>).quote = "compute.servers.create";
+    const generated = generateSurface(document, ajv);
+    expect(generated.skipped).toEqual([
+      expect.objectContaining({ operationId: "compute.servers.upgrade", reason: "no-quote" }),
+    ]);
+  });
+});
+
 describe("command tree", () => {
   const tree = new CommandTree(surfaceOf("surface").operations);
 
@@ -311,7 +546,7 @@ describe("command tree", () => {
     expect(tree.resolve(["compute"])).toEqual({
       kind: "group",
       group: ["compute"],
-      children: ["create", "delete", "get", "list", "power", "snapshots"],
+      children: ["create", "delete", "get", "list", "power", "quote-create", "snapshots"],
     });
   });
 

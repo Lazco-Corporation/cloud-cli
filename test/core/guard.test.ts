@@ -102,7 +102,7 @@ describe("schema check", () => {
     const error = refusal(() =>
       prepareRequest(
         operation("compute create"),
-        { hostname: "web-1", planSlug: "s1" },
+        { hostname: "web-1", planSlug: "s1", quoteId: "q-1", expectedAmount: "402.500" },
         { apiUrl, validator, idempotencyKey: "key-1" },
       ),
     );
@@ -121,6 +121,8 @@ describe("schema check", () => {
           sshKeys: ["a", 2],
           cloudInit: { userData: 3 },
           colour: "red",
+          quoteId: "q-1",
+          expectedAmount: "402.500",
         },
         { apiUrl, validator, idempotencyKey: "key-1" },
       ),

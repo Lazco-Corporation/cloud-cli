@@ -2,9 +2,13 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateSurface, type Operation } from "../../src/core/generate/operations";
+import {
+  type GeneratedSurface,
+  generateSurface,
+  type Operation,
+} from "../../src/core/generate/operations";
 import { createAjv } from "../../src/core/request/ajv";
-import type { OpenApiDocument } from "../../src/core/spec/types";
+import { HTTP_METHODS, type OpenApiDocument } from "../../src/core/spec/types";
 import { normalizeApiUrl } from "../../src/shell/apiUrl";
 
 /** The staging API, or another one for a local backend. */
@@ -72,13 +76,38 @@ export function errorOf(run: Run): { code: string; status?: number; [field: stri
   return JSON.parse(line).error;
 }
 
-/** The operations of the staging spec, as this version of the generator reads them. */
-export async function stagingOperations(): Promise<readonly Operation[]> {
+/** The staging spec as the API serves it. */
+export async function stagingSpec(): Promise<OpenApiDocument> {
   const response = await fetch(`${API_URL}/spec`);
   if (!response.ok) {
     throw new Error(`GET /v1/spec answered ${response.status}`);
   }
-  return generateSurface((await response.json()) as OpenApiDocument, createAjv()).operations;
+  return (await response.json()) as OpenApiDocument;
+}
+
+/** The commands and the skipped operations of a spec, as this version of the generator reads them. */
+export function surfaceOf(document: OpenApiDocument): GeneratedSurface {
+  return generateSurface(document, createAjv());
+}
+
+/** The operations of the staging spec, as this version of the generator reads them. */
+export async function stagingOperations(): Promise<readonly Operation[]> {
+  return surfaceOf(await stagingSpec()).operations;
+}
+
+/**
+ * The `operationId` of every exposed operation a spec marks `spend`, read
+ * from the spec itself. One with `expose: false` is never a command.
+ */
+export function specSpendOperationIds(document: OpenApiDocument): string[] {
+  return Object.values(document.paths)
+    .flatMap((pathItem) => HTTP_METHODS.map((method) => pathItem[method]))
+    .filter((operation) => {
+      const annotation = operation?.["x-lazco"] as { kind?: unknown; expose?: unknown } | undefined;
+      return annotation?.kind === "spend" && annotation.expose !== false;
+    })
+    .map((operation) => operation?.operationId ?? "")
+    .sort();
 }
 
 /** The organization's features from `whoami`. */

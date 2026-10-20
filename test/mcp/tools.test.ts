@@ -86,13 +86,33 @@ describe("the tiers", () => {
     expect(session.client.getInstructions()).toContain("the token's scope is billing_admin");
   });
 
-  test("a spend operation never has a tool", async () => {
-    const spec = loadFixture("surface");
-    const create = spec.paths["/v1/servers"]?.post as { "x-lazco": Record<string, unknown> };
-    create["x-lazco"].mcp = { name: "compute_create_server" };
-    state.spec = spec;
-    const session = await start(true);
-    expect(await toolNames(session)).not.toContain("compute_create_server");
+  test("a spend tool and its quote tool need --allow-writes and --allow-spend together", async () => {
+    state.spec = loadFixture("spend");
+    const spendAndQuote = ["compute_create_server", "compute_quote_create_server"];
+    const listed = async (allowWrites: boolean, allowSpend: boolean) => {
+      const session = await connectSession(api, {
+        allowWrites,
+        allowSpend,
+        cacheDirectory: home.cache,
+      });
+      try {
+        return await toolNames(session);
+      } finally {
+        await session.close();
+      }
+    };
+    for (const [allowWrites, allowSpend] of [
+      [false, false],
+      [true, false],
+      [false, true],
+    ] as const) {
+      const names = await listed(allowWrites, allowSpend);
+      expect(names).toEqual(["billing_get_quote", "tasks_get"]);
+    }
+    const both = await listed(true, true);
+    expect(both).toEqual(expect.arrayContaining([...spendAndQuote, "billing_get_quote"]));
+    state.scope = "read";
+    expect(await listed(true, true)).toEqual(["billing_get_quote", "tasks_get"]);
   });
 
   test("an operation with mcp false is never a tool", async () => {

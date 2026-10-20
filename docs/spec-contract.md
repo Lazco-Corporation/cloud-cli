@@ -24,7 +24,7 @@ The MCP server checks by ETag every 5 minutes, whatever the age of its copy.
 
 | Key | Values | Effect |
 |---|---|---|
-| `expose` | `false` | No command and no tool. Nothing else is read |
+| `expose` | `false` | No command and no tool. Nothing else is read, but a hidden spend's `quote` still marks its quote operation, which then never registers as a tool alone |
 | `cli` | words of `[a-z0-9][a-z0-9-]*` | The command, such as `compute delete` |
 | `mcp` | `{ "name": "<snake_case>" }` or `false` | The tool name, or no tool |
 | `kind` | `read`, `write`, `destructive`, `spend` | The confirmation, the MCP tier and the annotations |
@@ -34,8 +34,9 @@ The MCP server checks by ETag every 5 minutes, whatever the age of its copy.
 | `confirm` | a body property | The field that must hold the resource's own name |
 | `paginate` | `cursor`, `page` | A list over pages |
 | `upload` | an uploader name | The uploader of that name runs the operation, see "Uploaders". A name this version lacks skips it |
+| `quote` | an `operationId` | The quote operation of a `spend` operation, see "Spend operations". Ignored on any other kind |
 
-A key the schema does not list is ignored, so a later key such as `quote` never breaks this version.
+A key the schema does not list is ignored, so a later key never breaks this version.
 A known key with an unknown value skips the operation with one warning, because a guess could skip a confirmation or a precondition.
 
 An operation is also skipped, with one warning each, when:
@@ -46,6 +47,7 @@ An operation is also skipped, with one warning each, when:
 - `upload` names an uploader this version lacks
 - two operations share a command or a tool name, or a command is also a group of other commands
 - a `$ref` cannot be resolved, the body is not `application/json`, or a header or cookie parameter other than `Idempotency-Key` is required
+- a `spend` operation has no `quote`, its quote operation is not in the spec or is not `write`, it does not require `Idempotency-Key`, or its body does not require `quoteId` and `expectedAmount` as top-level body properties
 
 ## The input object
 
@@ -65,6 +67,36 @@ Each operation has one input object, the same for its command and its tool.
 On the command line, path parameters are positional, scalars are kebab-case flags (`--region-slug`), an array of scalars repeats its flag, and anything nested goes through `--json`.
 A property given by a flag and by `--json` is an error.
 A command's input whose name is a global flag, or the operation flag `--idempotency-key`, is reachable through `--json` only.
+
+## Spend operations
+
+A `spend` operation takes money from the account balance, and its body requires `quoteId` and `expectedAmount`.
+Its `quote` names the quote operation, a `write` operation that prices the same input and charges nothing.
+The API mounts it at `<spend path>/quote`, and the CLI finds it by its `operationId` only.
+
+- The command's input, `--json` and `--describe` hold neither `quoteId` nor `expectedAmount`.
+  `--describe` names the quote operation in `quote`.
+- A run sends the quote operation first, with the path parameters and the body fields the quote operation takes, or the whole input when its body is open, and a key of its own when it declares one.
+- It writes the quote to stderr, then asks or needs `--yes`, and sends the spend with `quoteId` and the quote's `amount` unchanged as `expectedAmount`.
+- Without a yes it exits 1 with `CLI_CONFIRM_REQUIRED`, and the error's `details.quote` holds the quote, or the `quoteId` and `amount` of `--quote-id` and `--expected-amount`.
+- `--dry-run` sends the quote request only, and prints the spend request with the quote in `body` and the member `quote`.
+- `--quote-id ID` with `--expected-amount AMOUNT` sends a quote the caller has, with no quote request.
+  One without the other, or an amount that is not a decimal of at most 3 decimals, is `CLI_INVALID_INPUT` before any request.
+  With `--dry-run` they send nothing, and `quote` is `null`.
+- A `QUOTE_*` answer exits 1.
+  The CLI never gets a new quote and resends, and the client never retries a `409` other than `IDEMPOTENCY_KEY_IN_PROGRESS`.
+- When a spend run ends with no final answer, the key notice also names `--quote-id` and `--expected-amount`, because a run again with a new quote would send another body under the same key.
+- Every money value stays the decimal string the API sent.
+  Readable text shows TWD with the decimals the value carries, such as `NT$52.5`.
+
+A quote answer holds `quoteId`, `operationId` (the spend operation it prices), `amount` and the other figures of the API's `Quote` schema.
+The CLI needs `quoteId` and an `amount` of at most 3 decimals, and fails with `CLI_BAD_RESPONSE` before the question without them.
+
+An MCP spend tool takes `quoteId` and `expectedAmount` as required inputs, and its quote tool takes the rest.
+Both register only with `--allow-writes --allow-spend`, and a quote tool never registers without its spend tool.
+With elicitation, a spend tool reads the quote back and asks only when its `operationId` is the tool's operation, its `status` is `open`, and its `amount` is the same decimal value as `expectedAmount`, so `402.5` matches `402.500`.
+Any other quote is `CLI_INVALID_INPUT`, and a quote answer without a `quoteId` or with an `amount` of more than 3 decimals is `CLI_BAD_RESPONSE`, both with no question and no spend.
+The question waits until the quote expires, for 60 seconds at least and 10 minutes at most.
 
 ## Idempotency-Key
 

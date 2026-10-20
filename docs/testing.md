@@ -42,20 +42,24 @@ infisical run --env=staging --path=/ci --projectId 0248054f-6632-402a-b7b9-290b9
 ```
 
 `LAZCO_CONTRACT_API_URL` points them at another API, such as a local backend.
-`LAZCO_CONTRACT_SPEND=1` adds the one test that spends: it buys a Pages pack twice with one `--idempotency-key`, checks the replay, and deletes the pack.
+`LAZCO_CONTRACT_SPEND=1` adds the one test that spends: it buys a Pages pack with `--yes` and one `--idempotency-key`, checks that its own quote is used and that the account balance fell by exactly the quote, runs it again with that key and that quote to check the replay, and deletes the pack.
 A pack costs a month of it with no refund, so the `contract` job sets it only on a push to `main`.
 The organization needs the `pages` feature and a balance of one pack month.
 The test deletes every pack of the organization that still renews, before and after the purchase, so never run it by hand while a `contract` job of `main` runs.
 
-They read every `read` operation that needs no input, round-trip an SSH key, check the 401, 404, guard and schema errors, walk both list shapes with `--page-all`, check that every `spend` operation requires `Idempotency-Key`, and check the MCP tiers with both tokens.
+They read every `read` operation that needs no input, round-trip an SSH key, check the 401, 404, guard and schema errors, walk both list shapes with `--page-all`, check that every `spend` operation requires `Idempotency-Key` and has a quote operation, and check the MCP tiers with both tokens.
+A spend's `--dry-run` must leave its quote open and charge nothing.
+A bandwidth add-on must ask for its quote first, and the quote's 404 must stop it, because staging has no server to buy one for.
+The MCP spend tier must list each spend tool with its quote tool, quote with the quote tool, and refuse a spend tool call without a quote.
 Every SSH key they create is named `cli-contract-<suffix>`, and each run deletes every such key at its start and its end, so a cancelled run leaves nothing for long.
 The `contract` job runs one at a time, because every run writes to the same organization.
 `async` and `etag` are checked by the fixtures only, because a staging deploy costs credit and a DNS write needs a delegated zone.
 
 ## The MCP evaluation set
 
-`eval/mcp/tasks.yaml` holds 44 tasks in natural language against the contract organization.
+`eval/mcp/tasks.yaml` holds 48 tasks in natural language against the contract organization.
 Each has the tier it needs, the tools a good run calls, and a CLI command whose output proves the answer.
+A task may also name the tools a good run never calls, and later user messages, such as a yes or a no to a quote, each graded on its own turn.
 `eval/mcp/run.ts` runs them through `pi` and grades each one.
 
 The Pages tasks deploy to an active Pages site of the contract organization, named `cli-eval` unless `--pages-site <name>` names another.
@@ -65,9 +69,17 @@ The Pages tasks deploy to an active Pages site of the contract organization, nam
 3. Run `lazco mcp install --client pi --profile staging`.
 4. Run `bun run build`, then `bun eval/mcp/run.ts --tier read`.
 5. Run `lazco mcp install --client pi --profile staging --allow-writes`, then `bun eval/mcp/run.ts --tier write`.
-6. Put the copy of `~/.pi/agent/mcp.json` back.
+6. Run `lazco mcp install --client pi --profile staging --allow-writes --allow-spend`, then `bun eval/mcp/run.ts --tier spend`.
+7. Put the copy of `~/.pi/agent/mcp.json` back.
+
+The `spend` tasks run one at a time, because they share one account balance and one list of packs.
+They quote a Pages pack and answer no, quote one and answer yes, and ask for a bandwidth add-on of a server that does not exist.
+The yes buys one pack, so a `spend` run costs one pack month.
+The runner deletes every pack that still renews before and after each pack task, and a pack it cannot delete fails the task.
+Never run the `spend` tier while a `contract` job of `main` runs, because both buy and delete packs of the same organization.
+`pi -p` declares no elicitation, so these tasks grade the model: it must quote, show the amount and ask, and spend only after a yes.
 
 The runner prints a JSON summary with the pass list and each failure.
-The bar is 40 of 44.
+The bar is 41 of the 45 `read` and `write` tasks, the same rate as the 40 of 44 before the `spend` tier, and every `spend` task, because a failed `spend` task may have spent money nobody agreed to.
 The results go into the pull request, never into the repo, because they depend on the model and the day.
 A weak result is usually a weak `summary` or `description` in the spec, and the fix belongs in `cloud-backend`.

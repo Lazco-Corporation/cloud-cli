@@ -71,6 +71,9 @@ describe("input from arguments", () => {
       planSlug: "s1",
       sshKeys: ["key-a", "key-b"],
       autoBackup: false,
+      // A dry run fills both from the quote it asked for.
+      quoteId: "q-1",
+      expectedAmount: "402.500",
     });
   });
 

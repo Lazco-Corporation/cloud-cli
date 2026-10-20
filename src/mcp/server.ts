@@ -8,11 +8,19 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type Ajv2020 from "ajv/dist/2020.js";
 import { CliError, redactSecrets, toToolError } from "../core/errors";
-import { describeSkip, generateSurface } from "../core/generate/operations";
+import {
+  describeSkip,
+  EXPECTED_AMOUNT_INPUT,
+  generateSurface,
+  type Operation,
+  QUOTE_ID_INPUT,
+} from "../core/generate/operations";
+import { describeQuote, formatTwd, type Quote, readQuote, sameAmount } from "../core/quote";
 import { prepareRequest } from "../core/request/build";
 import { type ApiClient, requireJson } from "../core/request/client";
 import { type Clock, SYSTEM_CLOCK } from "../core/request/clock";
 import { DEFAULT_WAIT_SECONDS, executeOperation } from "../core/request/execute";
+import { guardPathParameters } from "../core/request/guard";
 import { newIdempotencyKey } from "../core/request/idempotency";
 import { readPage } from "../core/request/paginate";
 import type { InputValidator } from "../core/request/validate";
@@ -28,6 +36,23 @@ import {
   taskToolName,
   toolSetSignature,
 } from "./tools";
+
+/** How long a quote holds after the API priced it. */
+const QUOTE_LIFETIME_MS = 10 * 60 * 1000;
+/** The shortest time the user gets to answer a spend question. */
+const MIN_ANSWER_WINDOW_MS = 60 * 1000;
+
+/**
+ * How long the user has to answer a spend question: until the quote
+ * expires, never past its 10 minutes, and never under the SDK's 60 seconds,
+ * so a local clock that runs ahead does not cut the question short.
+ */
+export function answerWindowMs(expiresAt: unknown, now: number): number {
+  const left = (typeof expiresAt === "string" ? Date.parse(expiresAt) : Number.NaN) - now;
+  return Number.isFinite(left)
+    ? Math.min(Math.max(left, MIN_ANSWER_WINDOW_MS), QUOTE_LIFETIME_MS)
+    : QUOTE_LIFETIME_MS;
+}
 
 /** How often a connected server checks the spec and `whoami` again. */
 export const RECHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -47,6 +72,8 @@ export const SYSTEM_SCHEDULER: Scheduler = {
 export type McpSessionOptions = {
   version: string;
   allowWrites: boolean;
+  /** Offer the spend tools and their quote tools, with `allowWrites` too. */
+  allowSpend: boolean;
   /** Every secret of the credential so far, which no tool result may show. */
   secrets: () => readonly string[];
   /** The API client with the credential, which every tool call and `whoami` use. */
@@ -111,7 +138,7 @@ export function readFacts(whoami: unknown): SessionFacts {
 function buildToolSet(
   document: OpenApiDocument,
   facts: SessionFacts,
-  options: Pick<McpSessionOptions, "ajv" | "allowWrites" | "warn">,
+  options: Pick<McpSessionOptions, "ajv" | "allowWrites" | "allowSpend" | "warn">,
   warnedSkips: Set<string>,
 ): ToolSet {
   const generated = generateSurface(document, options.ajv);
@@ -122,7 +149,11 @@ function buildToolSet(
       options.warn(`warning: ${message}`);
     }
   }
-  return selectTools(generated.operations, { allowWrites: options.allowWrites, facts });
+  return selectTools(generated.operations, {
+    allowWrites: options.allowWrites,
+    allowSpend: options.allowSpend,
+    facts,
+  });
 }
 
 /**
@@ -282,6 +313,9 @@ export class McpSession {
       if (operation.body.mode === "upload") {
         return this.text(await this.runUploader(operation, request, input, extra), false);
       }
+      if (operation.kind === "spend" && this.server.getClientCapabilities()?.elicitation) {
+        await this.confirmSpend(operation, input, extra);
+      }
       const body = await executeOperation(
         operation,
         request,
@@ -300,6 +334,91 @@ export class McpSession {
       return this.text(result, false);
     } catch (error) {
       return this.text({ error: toToolError(error).toBody() }, true);
+    }
+  }
+
+  /**
+   * Asks the user to confirm a spend through elicitation, with the quote as
+   * the API holds it, never as the model passed it. Throws unless the user
+   * accepted with `confirm` true.
+   */
+  private async confirmSpend(
+    operation: Operation,
+    input: Record<string, unknown>,
+    extra: ToolCallExtra,
+  ): Promise<void> {
+    const { [QUOTE_ID_INPUT]: quoteId } = guardPathParameters([QUOTE_ID_INPUT], input);
+    const response = await this.options.client.call({
+      method: "GET",
+      path: `/billing/quotes/${encodeURIComponent(quoteId as string)}`,
+    });
+    const quote: Quote = readQuote(requireJson(response), "GET /billing/quotes/{quoteId}");
+    // The user is asked only about a quote this spend can use.
+    if (quote.operationId !== operation.operationId) {
+      const target =
+        typeof quote.operationId === "string"
+          ? `is for ${quote.operationId}`
+          : "names no operation";
+      throw new CliError(
+        "CLI_INVALID_INPUT",
+        `The quote ${quote.quoteId} ${target}, not this tool's. Get a quote from its quote tool`,
+        [{ field: QUOTE_ID_INPUT, message: "must be a quote of this tool's quote tool" }],
+      );
+    }
+    if (quote.status !== "open") {
+      throw new CliError(
+        "CLI_INVALID_INPUT",
+        `The quote ${quote.quoteId} is ${typeof quote.status === "string" ? quote.status : "not open"}. Get a new quote and show it to the user`,
+        [{ field: QUOTE_ID_INPUT, message: "must be an open quote" }],
+      );
+    }
+    const expected = input[EXPECTED_AMOUNT_INPUT] as string;
+    if (!sameAmount(expected, quote.amount)) {
+      throw new CliError(
+        "CLI_INVALID_INPUT",
+        `${EXPECTED_AMOUNT_INPUT} ${expected} is not the quote's amount "${quote.amount}". Show the user the quote of "${quote.amount}" and pass that amount unchanged`,
+        [{ field: EXPECTED_AMOUNT_INPUT, message: `must be the quote's amount "${quote.amount}"` }],
+      );
+    }
+    const title = operation.summary || operation.toolName || operation.operationId;
+    const message = [
+      `${title}: spend ${formatTwd(quote.amount)} from the account balance?`,
+      ...describeQuote(quote),
+    ].join("\n");
+    let answer: Awaited<ReturnType<Server["elicitInput"]>>;
+    try {
+      answer = await this.server.elicitInput(
+        {
+          mode: "form",
+          message: redactSecrets(message, this.options.secrets()),
+          requestedSchema: {
+            type: "object",
+            properties: {
+              confirm: {
+                type: "boolean",
+                title: "Spend from the account balance",
+                description: `Yes spends ${formatTwd(quote.amount)} from the account balance`,
+              },
+            },
+            required: ["confirm"],
+          },
+        },
+        // The user may read the quote for as long as it holds, not only the SDK's 60 seconds.
+        { signal: extra.signal, timeout: answerWindowMs(quote.expiresAt, this.clock.now()) },
+      );
+    } catch (error) {
+      throw new CliError(
+        "CLI_CONFIRM_REQUIRED",
+        `The user could not be asked to confirm the spend, so nothing was spent: ${toToolError(error).message}`,
+        { quoteId: quote.quoteId },
+      );
+    }
+    if (answer.action !== "accept" || answer.content?.confirm !== true) {
+      throw new CliError(
+        "CLI_CONFIRM_REQUIRED",
+        "The user did not confirm the spend, so nothing was spent. Do not spend without a new yes",
+        { quoteId: quote.quoteId, action: answer.action },
+      );
     }
   }
 

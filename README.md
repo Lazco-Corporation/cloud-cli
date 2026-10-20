@@ -95,6 +95,13 @@ lazco compute create --json - < server.json --dry-run
 - `--human` prints a table instead. `NO_COLOR` turns its color off.
 - `--page-all` follows every page of a list.
 - A command that deletes or spends asks first on a terminal. `--yes` confirms without asking, and a command that needs the resource's name still needs it in its field.
+- A command that spends asks the API for a quote first, and shows it on stderr: the amount it takes from the account balance, each line, the period, the recurring charge, and when the quote expires.
+  It then asks, or needs `--yes`, and spends exactly the quoted amount.
+  Without a yes it exits 1 with `CLI_CONFIRM_REQUIRED`, and the error's `details.quote` holds the quote.
+- `--dry-run` of a command that spends asks for its quote, which charges nothing, and prints the request it would send with the quote in `body` and in `quote`.
+  `--quote-id <id>` with `--expected-amount <amount>` spends with a quote you already have, such as the one of a dry run, and asks for no new one.
+  A quote is good for 10 minutes and for one spend.
+  When the API refuses a quote, `lazco` never asks for a new one by itself, because that is a price nobody saw.
 - A command that spends sends an `Idempotency-Key`, so a retry after a lost answer never charges twice.
   `--idempotency-key <key>` chooses the key: run the same command again with the same key, within 24 hours, to get the first result instead of a second charge.
 - A task such as a deploy is waited for. `--no-wait` prints the accepted task at once.
@@ -124,11 +131,14 @@ lazco mcp install --client <client>
 
 `<client>` is one of `claude-code`, `claude-desktop`, `codex`, `cursor`, `devin`, `gemini`, `pi` or `vscode`.
 The entry holds the command only, never a credential.
-`--profile <name>` and `--allow-writes` go into the entry, and `--dry-run` shows the entry without writing it.
+`--profile <name>`, `--allow-writes` and `--allow-spend` go into the entry, and `--dry-run` shows the entry without writing it.
 
 Without `--allow-writes` the server offers read tools only.
 With it, the server adds the tools that change things, and the deleting ones that need the resource's name.
-It never offers a tool that spends money, and a read-only token gets read tools only.
+With `--allow-spend` too, it adds the tools that spend from the account balance, each with its quote tool.
+A spend tool needs a quote from its quote tool, and its description tells the model to show the quote and get your yes first.
+When the client can ask you itself (MCP elicitation), the server shows you the quote from the API and spends only after you accept.
+A read-only token gets read tools only.
 
 For a desktop client, install `lazco` globally first, so the entry names it by its full path.
 

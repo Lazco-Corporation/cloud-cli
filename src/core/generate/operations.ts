@@ -25,6 +25,12 @@ export const IF_MATCH_INPUT = "ifMatch";
 export const BODY_INPUT = "body";
 /** The header a spend operation requires and a few others take, which the core fills itself. */
 export const IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
+/** The body field of a spend operation that names its quote. */
+export const QUOTE_ID_INPUT = "quoteId";
+/** The body field of a spend operation that repeats its quote's amount. */
+export const EXPECTED_AMOUNT_INPUT = "expectedAmount";
+/** The two body fields a spend command fills from its quote, never from its input. */
+export const QUOTE_INPUTS: readonly string[] = [QUOTE_ID_INPUT, EXPECTED_AMOUNT_INPUT];
 
 /** Whether an operation declares `Idempotency-Key`, and how. */
 export type IdempotencyKeyUse = "required" | "optional";
@@ -55,6 +61,11 @@ export type Operation = {
   feature: string | null;
   /** The JSON Schema of the one input object, self-contained. */
   inputSchema: JsonSchema;
+  /**
+   * The input of the command: `inputSchema`, less `quoteId` and
+   * `expectedAmount` for a spend operation, which its command fills itself.
+   */
+  commandInputSchema: JsonSchema;
   pathParameters: readonly string[];
   queryParameters: readonly string[];
   /** The command's positional inputs: the path parameters, then an uploader's own. */
@@ -62,6 +73,10 @@ export type Operation = {
   body: BodyMapping;
   /** `Idempotency-Key` as the spec declares it, or `null`. Never an input: the core sends it. */
   idempotencyKey: IdempotencyKeyUse | null;
+  /** The quote operation that a spend operation's `x-lazco.quote` names, else `null`. */
+  quote: Operation | null;
+  /** True when a spend operation's `x-lazco.quote` names this one. */
+  isQuote: boolean;
 };
 
 export type SkipReason =
@@ -74,7 +89,8 @@ export type SkipReason =
   | "duplicate-tool"
   | "unresolvable-ref"
   | "unsupported-body"
-  | "unsupported-parameter";
+  | "unsupported-parameter"
+  | "no-quote";
 
 export type SkippedOperation = {
   method: HttpMethod;
@@ -109,6 +125,7 @@ export function generateSurface(document: OpenApiDocument, ajv: Ajv2020): Genera
   const checkAnnotation = createAnnotationChecker(ajv);
   const candidates: Operation[] = [];
   const skipped: SkippedOperation[] = [];
+  const namedQuotes = new Set<string>();
   const skip = (operation: Operation, reason: SkipReason, message: string): void => {
     skipped.push({
       method: operation.method,
@@ -124,6 +141,11 @@ export function generateSurface(document: OpenApiDocument, ajv: Ajv2020): Genera
       const source = pathItem[method];
       if (!source) {
         continue;
+      }
+      // Read as given, so a quote stays a quote even when its spend is hidden or skipped.
+      const quoteName = rawSpendQuote(source["x-lazco"]);
+      if (quoteName !== undefined) {
+        namedQuotes.add(quoteName);
       }
       const check = checkAnnotation(source["x-lazco"]);
       if (!check.exposed) {
@@ -151,14 +173,24 @@ export function generateSurface(document: OpenApiDocument, ajv: Ajv2020): Genera
     }
   }
 
-  const byCommand = groupBy(candidates, (operation) => operation.command.join(" "));
+  // A spend without a usable quote is dropped first, so it never makes another operation a duplicate.
+  const candidateIds = new Map(candidates.map((operation) => [operation.operationId, operation]));
+  const usable = candidates.filter((operation) => {
+    const problem = quoteProblem(operation, candidateIds);
+    if (problem !== undefined) {
+      skip(operation, "no-quote", problem);
+    }
+    return problem === undefined;
+  });
+
+  const byCommand = groupBy(usable, (operation) => operation.command.join(" "));
   const byTool = groupBy(
-    candidates.filter((operation) => operation.toolName !== null),
+    usable.filter((operation) => operation.toolName !== null),
     (operation) => operation.toolName as string,
   );
   const commandKeys = [...byCommand.keys()];
-  const operations: Operation[] = [];
-  for (const operation of candidates) {
+  const kept: Operation[] = [];
+  for (const operation of usable) {
     const command = operation.command.join(" ");
     if ((byCommand.get(command)?.length ?? 0) > 1) {
       skip(operation, "duplicate-command", `another operation also uses the command "${command}"`);
@@ -171,10 +203,60 @@ export function generateSurface(document: OpenApiDocument, ajv: Ajv2020): Genera
     } else if (commandKeys.some((other) => other.startsWith(`${command} `))) {
       skip(operation, "command-is-group", `"${command}" is also a group of other commands`);
     } else {
+      kept.push(operation);
+    }
+  }
+
+  // Only a write operation can be a quote, so a wrong name in the spec never hides a read tool.
+  const marked = kept.map((operation) => ({
+    ...operation,
+    isQuote: operation.kind === "write" && namedQuotes.has(operation.operationId),
+  }));
+  const byOperationId = new Map(marked.map((operation) => [operation.operationId, operation]));
+  const operations: Operation[] = [];
+  for (const operation of marked) {
+    if (operation.kind !== "spend") {
       operations.push(operation);
+      continue;
+    }
+    const name = operation.annotation.quote as string;
+    const quote = byOperationId.get(name);
+    if (quote === undefined) {
+      skip(operation, "no-quote", `its quote operation "${name}" is skipped`);
+    } else {
+      operations.push({ ...operation, quote });
     }
   }
   return { operations, skipped };
+}
+
+/** Why a spend operation's quote operation cannot serve it, or `undefined` when it can. */
+function quoteProblem(
+  operation: Operation,
+  candidates: ReadonlyMap<string, Operation>,
+): string | undefined {
+  if (operation.kind !== "spend") {
+    return undefined;
+  }
+  const name = operation.annotation.quote as string;
+  const quote = candidates.get(name);
+  if (quote === undefined) {
+    return `its quote operation "${name}" is not in the spec, or is skipped`;
+  }
+  // A quote stores a quote and charges nothing: any other kind is a mistake of the spec.
+  if (quote.kind !== "write") {
+    return `its quote operation "${name}" is ${quote.kind}, not write`;
+  }
+  return undefined;
+}
+
+/** The `x-lazco.quote` of a raw spend annotation, whether or not the rest of it is valid. */
+function rawSpendQuote(value: unknown): string | undefined {
+  if (value === null || typeof value !== "object") {
+    return undefined;
+  }
+  const { kind, quote } = value as { kind?: unknown; quote?: unknown };
+  return kind === "spend" && typeof quote === "string" ? quote : undefined;
 }
 
 function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, T[]> {
@@ -208,6 +290,9 @@ function buildOperation(
   }
   if (annotation.concurrency === "etag" && !document.paths[path]?.get) {
     throw new SkipError("etag-without-get", "concurrency etag needs a GET at the same path");
+  }
+  if (annotation.kind === "spend" && annotation.quote === undefined) {
+    throw new SkipError("no-quote", "a spend operation needs x-lazco.quote");
   }
 
   const parameters = collectParameters(document, pathLevelParameters, source.parameters);
@@ -301,6 +386,16 @@ function buildOperation(
   if (Object.keys(resolved.definitions).length > 0) {
     inputSchema.$defs = resolved.definitions;
   }
+  if (annotation.kind === "spend" && idempotencyKey !== "required") {
+    throw new SkipError(
+      "unsupported-parameter",
+      `a spend operation must declare the header "${IDEMPOTENCY_KEY_HEADER}" as required`,
+    );
+  }
+  const commandInputSchema =
+    annotation.kind === "spend"
+      ? withoutQuoteInputs(inputSchema, body.mapping, [...pathParameters, ...queryParameters])
+      : inputSchema;
 
   return {
     operationId: source.operationId ?? `${method} ${path}`,
@@ -314,11 +409,45 @@ function buildOperation(
     toolName: annotation.mcp === false ? null : annotation.mcp.name,
     feature: annotation.feature ?? null,
     inputSchema,
+    commandInputSchema,
     pathParameters,
     queryParameters,
     positionals: [...pathParameters, ...(uploader?.positionals ?? [])],
     body: body.mapping,
     idempotencyKey,
+    quote: null,
+    isQuote: false,
+  };
+}
+
+/**
+ * A spend operation's input less `quoteId` and `expectedAmount`, which must
+ * be required top-level body fields so its command can fill them.
+ */
+function withoutQuoteInputs(
+  schema: JsonSchema,
+  mapping: BodyMapping,
+  parameters: readonly string[],
+): JsonSchema {
+  const properties = (schema.properties ?? {}) as Record<string, JsonSchema>;
+  const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+  // A parameter of the same name would carry the field in the URL, not in the body.
+  const missing = QUOTE_INPUTS.filter(
+    (name) =>
+      !Object.hasOwn(properties, name) || !required.includes(name) || parameters.includes(name),
+  );
+  if (mapping.mode !== "merged" || missing.length > 0) {
+    throw new SkipError(
+      "unsupported-body",
+      `a spend operation's body must require ${QUOTE_INPUTS.join(" and ")}`,
+    );
+  }
+  return {
+    ...schema,
+    properties: Object.fromEntries(
+      Object.entries(properties).filter(([name]) => !QUOTE_INPUTS.includes(name)),
+    ),
+    required: required.filter((name) => !QUOTE_INPUTS.includes(name)),
   };
 }
 

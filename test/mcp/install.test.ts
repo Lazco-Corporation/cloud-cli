@@ -240,6 +240,36 @@ describe("lazco mcp install", () => {
     expect(run.error.error.code).toBe("CLI_INVALID_INPUT");
   });
 
+  test("--allow-spend is written into the entry's arguments after --allow-writes", async () => {
+    const lazco = await fakeProgram("lazco");
+    const claude = await fakeProgram("claude");
+    const run = await install(["--client", "claude-code", "--allow-writes", "--allow-spend"]);
+    expect(run.code).toBe(0);
+    const json = JSON.stringify({
+      type: "stdio",
+      command: lazco,
+      args: ["mcp", "--allow-writes", "--allow-spend"],
+    });
+    expect((await calls(claude)).at(-1)).toEqual([
+      "mcp",
+      "add-json",
+      "lazco",
+      json,
+      "--scope",
+      "user",
+    ]);
+  });
+
+  test("--allow-spend without --allow-writes is CLI_INVALID_INPUT and writes nothing", async () => {
+    await fakeProgram("lazco");
+    const claude = await fakeProgram("claude");
+    const run = await install(["--client", "claude-code", "--allow-spend"]);
+    expect(run.code).toBe(1);
+    expect(run.error.error.code).toBe("CLI_INVALID_INPUT");
+    // The fake claude writes a .calls file when it runs, and it never ran.
+    expect(await Bun.file(`${claude}.calls`).exists()).toBe(false);
+  });
+
   test("claude-code goes through claude mcp add-json at user scope, after a remove", async () => {
     const lazco = await fakeProgram("lazco");
     const claude = await fakeProgram("claude");

@@ -1,4 +1,5 @@
 import { type ArgsDef, type CommandDef, renderUsage } from "citty";
+import { EXPECTED_AMOUNT_FLAG, QUOTE_ID_FLAG } from "../core/quote";
 import { IDEMPOTENCY_KEY_FLAG } from "../core/request/idempotency";
 import type { CommandEntry } from "./entries";
 import { GLOBAL_FLAGS } from "./globalFlags";
@@ -54,8 +55,8 @@ export async function commandUsage(entry: CommandEntry): Promise<string> {
 
 /**
  * The flags that belong to the operation, not to its input: `--yes` for a
- * command that asks first, and `--idempotency-key` where the spec requires
- * the header.
+ * command that asks first, `--idempotency-key` where the spec requires the
+ * header, and `--quote-id` with `--expected-amount` for a spend command.
  */
 function operationFlags(entry: CommandEntry): ArgsDef {
   const operation = entry.source.type === "operation" ? entry.source.operation : undefined;
@@ -72,6 +73,19 @@ function operationFlags(entry: CommandEntry): ArgsDef {
       valueHint: "key",
       description:
         "The Idempotency-Key to send (default: a new UUID). Run again with the same key to get the first result, not a second run",
+    };
+  }
+  if (operation.kind === "spend") {
+    args[QUOTE_ID_FLAG] = {
+      type: "string",
+      valueHint: "id",
+      description:
+        "Spend with a quote you already have, such as quote.quoteId of a --dry-run, and ask for no new one. Needs --expected-amount",
+    };
+    args[EXPECTED_AMOUNT_FLAG] = {
+      type: "string",
+      valueHint: "amount",
+      description: "The amount of the quote of --quote-id, unchanged, such as 402.500",
     };
   }
   return args;

@@ -37,7 +37,8 @@ It never holds a credential or an environment variable that holds one: the serve
 }
 ```
 
-`--profile`, `--api-url` and `--allow-writes` given to `install` go into `args`.
+`--profile`, `--api-url`, `--allow-writes` and `--allow-spend` given to `install` go into `args`.
+`--allow-spend` without `--allow-writes` is `CLI_INVALID_INPUT`, and nothing is written, because the server offers spend tools only with both.
 
 The command is an absolute path, because a desktop client often starts with a `PATH` that lacks the user's shell setup.
 It is chosen in this order:

@@ -279,8 +279,10 @@ describe("API client", () => {
     );
     expect(MONOTONIC_CLOCK.now() - started).toBeGreaterThanOrEqual(3900);
     const times = api.requests.map((request) => request.at).sort((left, right) => left - right);
+    // Arrival times carry the loopback and event loop delay of each request, seen as up to
+    // 17 ms. 950 ms leaves room for that and still fails 11 starts a second, which is 909 ms.
     for (let index = 10; index < times.length; index += 1) {
-      expect((times[index] as number) - (times[index - 10] as number)).toBeGreaterThanOrEqual(990);
+      expect((times[index] as number) - (times[index - 10] as number)).toBeGreaterThanOrEqual(950);
     }
   }, 10_000);
 });
