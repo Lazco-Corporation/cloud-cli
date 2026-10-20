@@ -169,13 +169,32 @@ async function deleteLivePacks(): Promise<string[]> {
 
 /** Deletes what a task made, and names whatever it could not delete. */
 async function cleanup(task: Task): Promise<string[]> {
-  for (const id of await namedIds(["ssh-keys", "list"], task.cleanup?.sshKeysNamed ?? [])) {
-    await lazco(["ssh-keys", "delete", id]);
+  // Packs first, because they cost money every month, and each step runs even when one before it fails.
+  const steps: Array<() => Promise<string[]>> = [];
+  if (task.cleanup?.livePacks) {
+    steps.push(deleteLivePacks);
   }
-  for (const id of await namedIds(["projects", "list"], task.cleanup?.projectsNamed ?? [])) {
-    await lazco(["projects", "delete", id, "--yes"]);
+  steps.push(async () => {
+    for (const id of await namedIds(["ssh-keys", "list"], task.cleanup?.sshKeysNamed ?? [])) {
+      await lazco(["ssh-keys", "delete", id]);
+    }
+    return [];
+  });
+  steps.push(async () => {
+    for (const id of await namedIds(["projects", "list"], task.cleanup?.projectsNamed ?? [])) {
+      await lazco(["projects", "delete", id, "--yes"]);
+    }
+    return [];
+  });
+  const problems: string[] = [];
+  for (const step of steps) {
+    try {
+      problems.push(...(await step()));
+    } catch (error) {
+      problems.push(`cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
-  return task.cleanup?.livePacks ? await deleteLivePacks() : [];
+  return problems;
 }
 
 /**
@@ -189,6 +208,7 @@ function readTranscript(text: string): {
 } {
   const turns: Array<{ calls: string[]; answer: string }> = [];
   const errors: string[] = [];
+  let lastWasError = false;
   for (const line of text.split("\n")) {
     let event: {
       type?: string;
@@ -204,7 +224,14 @@ function readTranscript(text: string): {
     } catch {
       continue;
     }
+    // pi retries a rate limit or an overload, so the error it retries is not the run's.
+    if (event.type === "auto_retry_start") {
+      if (lastWasError) errors.pop();
+      lastWasError = false;
+      continue;
+    }
     if (event.type !== "message_end") continue;
+    lastWasError = false;
     if (event.message?.role === "user") {
       turns.push({ calls: [], answer: "" });
       continue;
@@ -212,6 +239,7 @@ function readTranscript(text: string): {
     // pi exits 0 when the model answers an error, so the error is read here.
     if (event.message?.role === "assistant" && event.message.stopReason === "error") {
       errors.push(event.message.errorMessage ?? "no message");
+      lastWasError = true;
     }
     const turn = turns.at(-1);
     const content = event.message?.content;
@@ -313,6 +341,10 @@ async function runTask(task: Task, index: number) {
       // A pack left by an earlier run would pass a proof that counts packs.
       for (const left of await deleteLivePacks()) problems.push(`setup failed: ${left}`);
     }
+    if (problems.length > 0) {
+      // The agent never runs, and so never spends, in a state the setup could not make.
+      throw new Error("the setup failed, so the agent did not run");
+    }
     const replies = filled.replies ?? [];
     // Each reply is one more user message in the same session, sent after the agent answers.
     const agent = Bun.spawn(
@@ -348,6 +380,16 @@ async function runTask(task: Task, index: number) {
     for (const error of new Set(errors)) problems.push(`the model failed: ${error}`);
     const calls = turns.flatMap((turn) => turn.calls);
     const answer = turns.at(-1)?.answer ?? "";
+    // Set before the proof, so a proof that throws still shows what the agent did.
+    result = {
+      id: task.id,
+      calls,
+      answer: answer.slice(0, 400),
+      turns:
+        replies.length === 0
+          ? undefined
+          : turns.map((turn) => ({ calls: turn.calls, answer: turn.answer.slice(0, 400) })),
+    };
     if (replies.length === 0) {
       problems.push(...gradeTurn(filled, { calls, answer }, "run"));
     } else {
@@ -372,15 +414,6 @@ async function runTask(task: Task, index: number) {
         }
       }
     }
-    result = {
-      id: task.id,
-      calls,
-      answer: answer.slice(0, 400),
-      turns:
-        replies.length === 0
-          ? undefined
-          : turns.map((turn) => ({ calls: turn.calls, answer: turn.answer.slice(0, 400) })),
-    };
   } catch (error) {
     problems.push(`the runner failed: ${error instanceof Error ? error.message : String(error)}`);
   }

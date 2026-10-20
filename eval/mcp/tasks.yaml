@@ -332,7 +332,7 @@ tasks:
     proof:
       command: [projects, list]
       check: "out.data.some((project) => project.name === 'eval-keep-{run}')"
-    answer: ["cannot|can't|unable|not able|no tool|isn't available|is not available|not available|panel|dashboard|cli"]
+    answer: ["cannot|can't|unable|not able|no tool|isn't available|is not available|not available|\\bpanel\\b|dashboard|\\bcli\\b"]
     cleanup: { projectsNamed: ["eval-keep-{run}"] }
 
   - id: pages-deploy-rules-file

@@ -95,11 +95,17 @@ export async function stagingOperations(): Promise<readonly Operation[]> {
   return surfaceOf(await stagingSpec()).operations;
 }
 
-/** The `operationId` of every operation a spec marks `spend`, read from the spec itself. */
+/**
+ * The `operationId` of every exposed operation a spec marks `spend`, read
+ * from the spec itself. One with `expose: false` is never a command.
+ */
 export function specSpendOperationIds(document: OpenApiDocument): string[] {
   return Object.values(document.paths)
     .flatMap((pathItem) => HTTP_METHODS.map((method) => pathItem[method]))
-    .filter((operation) => (operation?.["x-lazco"] as { kind?: unknown })?.kind === "spend")
+    .filter((operation) => {
+      const annotation = operation?.["x-lazco"] as { kind?: unknown; expose?: unknown } | undefined;
+      return annotation?.kind === "spend" && annotation.expose !== false;
+    })
     .map((operation) => operation?.operationId ?? "")
     .sort();
 }
