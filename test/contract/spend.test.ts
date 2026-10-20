@@ -5,8 +5,10 @@ import {
   lazco,
   READ_TOKEN,
   type Run,
+  specSpendOperationIds,
   stagingFeatures,
-  stagingOperations,
+  stagingSpec,
+  surfaceOf,
   temporaryHome,
   WRITE_TOKEN,
 } from "./staging";
@@ -22,7 +24,9 @@ const MISSING_SERVER = "00000000-0000-4000-8000-000000000000";
  */
 const SPEND_ALLOWED = process.env.LAZCO_CONTRACT_SPEND === "1";
 
-const operations = await stagingOperations();
+const spec = await stagingSpec();
+const surface = surfaceOf(spec);
+const operations = surface.operations;
 const features = await stagingFeatures(READ_TOKEN);
 let home: Awaited<ReturnType<typeof temporaryHome>>;
 
@@ -50,17 +54,24 @@ function succeeded(run: Run): { code: number; stderr: string } {
   return { code: run.code, stderr: run.stderr };
 }
 
-async function packs(): Promise<Pack[]> {
+async function entitlement(): Promise<{ packs?: Pack[]; prices?: { sitePackMonth?: unknown } }> {
   const run = await lazco(home.home, READ_TOKEN, ["labs", "pages", "entitlement", "get"]);
   expect(succeeded(run)).toEqual({ code: 0, stderr: "" });
-  return (JSON.parse(run.stdout) as { packs?: Pack[] }).packs ?? [];
+  return JSON.parse(run.stdout);
+}
+
+async function packs(): Promise<Pack[]> {
+  return (await entitlement()).packs ?? [];
 }
 
 /** The account balance in TWD, as `billing balance get` answers it. */
 async function balance(): Promise<number> {
   const run = await lazco(home.home, READ_TOKEN, ["billing", "balance", "get"]);
   expect(succeeded(run)).toEqual({ code: 0, stderr: "" });
-  return Number((JSON.parse(run.stdout) as { balanceAmount: number | string }).balanceAmount);
+  const amount = Number((JSON.parse(run.stdout) as { balanceAmount?: unknown }).balanceAmount);
+  // NaN equals NaN in toBe, so a missing field would make every "nothing charged" check pass.
+  expect(Number.isFinite(amount)).toBe(true);
+  return amount;
 }
 
 async function storedQuote(quoteId: string): Promise<Quote> {
@@ -90,24 +101,21 @@ async function deleteLivePacks(): Promise<void> {
   }
 }
 
-describe("Idempotency-Key", () => {
-  test("the staging spec requires the key on every spend operation", () => {
-    const spend = operations.filter((operation) => operation.kind === "spend");
-    expect(spend.length).toBeGreaterThan(0);
-    expect(
-      spend
-        .filter((operation) => operation.idempotencyKey !== "required")
-        .map((operation) => operation.command.join(" ")),
-    ).toEqual([]);
-  });
-});
-
 describe("spend quotes", () => {
-  test("the staging spec gives every spend command a quote operation", () => {
+  test("every spend operation of the staging spec is a command, with a required Idempotency-Key and a quote operation", () => {
+    const specSpend = specSpendOperationIds(spec);
+    expect(specSpend.length).toBeGreaterThan(0);
+    // The generator skips a spend without a required key or a usable quote, so a skipped one is a broken contract.
+    expect(
+      surface.skipped
+        .filter((skip) => specSpend.includes(skip.operationId ?? ""))
+        .map((skip) => `${skip.operationId}: ${skip.message}`),
+    ).toEqual([]);
     const spend = operations.filter((operation) => operation.kind === "spend");
+    expect(spend.map((operation) => operation.operationId).sort()).toEqual(specSpend);
     expect(
       spend
-        .filter((operation) => operation.quote === null)
+        .filter((operation) => operation.idempotencyKey !== "required" || operation.quote === null)
         .map((operation) => operation.command.join(" ")),
     ).toEqual([]);
     expect(spend.map((operation) => operation.command.join(" "))).toContain(
@@ -193,6 +201,12 @@ describe("spend quotes", () => {
       await deleteLivePacks();
       const before = (await packs()).map((pack) => pack.id);
       const balanceBefore = await balance();
+      const packPrice = Number((await entitlement()).prices?.sitePackMonth);
+      if (!(balanceBefore >= packPrice)) {
+        throw new Error(
+          `the contract organization has NT$${balanceBefore}, less than one pack month of NT$${packPrice}: grant it credit in the staging admin`,
+        );
+      }
       const key = `cli-contract-${Date.now()}-${process.pid}`;
       let failure: unknown;
       try {

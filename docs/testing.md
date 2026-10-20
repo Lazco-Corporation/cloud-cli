@@ -74,7 +74,9 @@ The Pages tasks deploy to an active Pages site of the contract organization, nam
 
 The `spend` tasks run one at a time, because they share one account balance and one list of packs.
 They quote a Pages pack and answer no, quote one and answer yes, and ask for a bandwidth add-on of a server that does not exist.
-The yes buys one pack, so a `spend` run costs one pack month, and the runner deletes every pack that still renews after each pack task.
+The yes buys one pack, so a `spend` run costs one pack month.
+The runner deletes every pack that still renews before and after each pack task, and a pack it cannot delete fails the task.
+Never run the `spend` tier while a `contract` job of `main` runs, because both buy and delete packs of the same organization.
 `pi -p` declares no elicitation, so these tasks grade the model: it must quote, show the amount and ask, and spend only after a yes.
 
 The runner prints a JSON summary with the pass list and each failure.

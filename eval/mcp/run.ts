@@ -36,7 +36,7 @@ const { values } = parseArgs({
   options: {
     tier: { type: "string" },
     profile: { type: "string", default: "staging" },
-    model: { type: "string", default: "oncloud_ai/~openrouter/claude-sonnet-latest" },
+    model: { type: "string", default: "oncloud_ai/anthropic/claude-sonnet-5-5" },
     thinking: { type: "string", default: "low" },
     concurrency: { type: "string", default: "4" },
     only: { type: "string" },
@@ -145,38 +145,59 @@ async function writeSite(directory: string, run: string): Promise<void> {
   await writeFile(join(directory, ".env"), "NOT_PUBLIC=1\n");
 }
 
-async function cleanup(task: Task): Promise<void> {
+/** The ids of the Pages packs that still renew. */
+async function livePackIds(): Promise<string[]> {
+  const command = ["labs", "pages", "entitlement", "get"];
+  const run = await lazco(command);
+  if (run.code !== 0) {
+    throw new Error(`labs pages entitlement get failed: ${run.stderr.trim()}`);
+  }
+  const out = output(command, run.stdout) as { packs?: Array<{ id: string; status: string }> };
+  return (out?.packs ?? []).filter((pack) => RENEWING_PACK.has(pack.status)).map((pack) => pack.id);
+}
+
+/**
+ * Deletes every Pages pack that still renews, and names each one still left.
+ * A pack renews every month until it is deleted, and a delete refunds nothing.
+ */
+async function deleteLivePacks(): Promise<string[]> {
+  for (const id of await livePackIds()) {
+    await lazco(["labs", "pages", "packs", "delete", id, "--yes"]);
+  }
+  return (await livePackIds()).map((id) => `pack ${id} still renews`);
+}
+
+/** Deletes what a task made, and names whatever it could not delete. */
+async function cleanup(task: Task): Promise<string[]> {
   for (const id of await namedIds(["ssh-keys", "list"], task.cleanup?.sshKeysNamed ?? [])) {
     await lazco(["ssh-keys", "delete", id]);
   }
   for (const id of await namedIds(["projects", "list"], task.cleanup?.projectsNamed ?? [])) {
     await lazco(["projects", "delete", id, "--yes"]);
   }
-  if (task.cleanup?.livePacks) {
-    // A pack renews every month until it is deleted, and a delete refunds nothing.
-    const run = await lazco(["labs", "pages", "entitlement", "get"]);
-    const out = output(["labs", "pages", "entitlement", "get"], run.stdout) as {
-      packs?: Array<{ id: string; status: string }>;
-    };
-    for (const pack of out?.packs ?? []) {
-      if (RENEWING_PACK.has(pack.status)) {
-        await lazco(["labs", "pages", "packs", "delete", pack.id, "--yes"]);
-      }
-    }
-  }
+  return task.cleanup?.livePacks ? await deleteLivePacks() : [];
 }
 
 /**
  * The tool calls and the last text of each turn of a `pi --mode json`
- * transcript. A turn starts at a user message and holds what the agent did
- * before the next one.
+ * transcript, and every model error. A turn starts at a user message and
+ * holds what the agent did before the next one.
  */
-function readTranscript(text: string): Array<{ calls: string[]; answer: string }> {
+function readTranscript(text: string): {
+  turns: Array<{ calls: string[]; answer: string }>;
+  errors: string[];
+} {
   const turns: Array<{ calls: string[]; answer: string }> = [];
+  const errors: string[] = [];
   for (const line of text.split("\n")) {
     let event: {
       type?: string;
-      message?: { role?: string; content?: Array<Record<string, string>> | string };
+      message?: {
+        role?: string;
+        content?: Array<Record<string, string>> | string;
+        stopReason?: string;
+        errorMessage?: string;
+      };
     };
     try {
       event = JSON.parse(line);
@@ -187,6 +208,10 @@ function readTranscript(text: string): Array<{ calls: string[]; answer: string }
     if (event.message?.role === "user") {
       turns.push({ calls: [], answer: "" });
       continue;
+    }
+    // pi exits 0 when the model answers an error, so the error is read here.
+    if (event.message?.role === "assistant" && event.message.stopReason === "error") {
+      errors.push(event.message.errorMessage ?? "no message");
     }
     const turn = turns.at(-1);
     const content = event.message?.content;
@@ -202,7 +227,7 @@ function readTranscript(text: string): Array<{ calls: string[]; answer: string }
       }
     }
   }
-  return turns;
+  return { turns, errors };
 }
 
 /** The problems of one turn against what it must do. */
@@ -251,6 +276,12 @@ async function runTask(task: Task, index: number) {
   const siteDirectory = join(workdir, "site");
   const usesPages = JSON.stringify(task).includes("{pagesSite");
   let filled: Task = task;
+  let result: {
+    id: string;
+    calls: string[];
+    answer: string;
+    turns: Array<{ calls: string[]; answer: string }> | undefined;
+  } = { id: task.id, calls: [], answer: "", turns: undefined };
   try {
     const pagesSiteValue = usesPages ? await pagesSite() : "";
     filled = JSON.parse(
@@ -278,6 +309,10 @@ async function runTask(task: Task, index: number) {
       const made = await lazco(["projects", "create", "--name", filled.setup.createProject]);
       if (made.code !== 0) problems.push(`setup failed: ${made.stderr.trim()}`);
     }
+    if (filled.cleanup?.livePacks) {
+      // A pack left by an earlier run would pass a proof that counts packs.
+      for (const left of await deleteLivePacks()) problems.push(`setup failed: ${left}`);
+    }
     const replies = filled.replies ?? [];
     // Each reply is one more user message in the same session, sent after the agent answers.
     const agent = Bun.spawn(
@@ -295,6 +330,9 @@ async function runTask(task: Task, index: number) {
         values.model as string,
         "--thinking",
         values.thinking as string,
+        // The answers are graded in English, whatever language the user's own rules ask for.
+        "--append-system-prompt",
+        "Answer in English.",
         "--",
         filled.prompt,
         ...replies.map((reply) => reply.prompt),
@@ -306,7 +344,8 @@ async function runTask(task: Task, index: number) {
     const exitCode = await agent.exited;
     clearTimeout(timer);
     if (exitCode !== 0) problems.push(`pi exited with ${exitCode}`);
-    const turns = readTranscript(transcript);
+    const { turns, errors } = readTranscript(transcript);
+    for (const error of new Set(errors)) problems.push(`the model failed: ${error}`);
     const calls = turns.flatMap((turn) => turn.calls);
     const answer = turns.at(-1)?.answer ?? "";
     if (replies.length === 0) {
@@ -333,11 +372,9 @@ async function runTask(task: Task, index: number) {
         }
       }
     }
-    return {
+    result = {
       id: task.id,
-      pass: problems.length === 0,
       calls,
-      problems,
       answer: answer.slice(0, 400),
       turns:
         replies.length === 0
@@ -346,11 +383,15 @@ async function runTask(task: Task, index: number) {
     };
   } catch (error) {
     problems.push(`the runner failed: ${error instanceof Error ? error.message : String(error)}`);
-    return { id: task.id, pass: false, calls: [], problems, answer: "", turns: undefined };
-  } finally {
-    await cleanup(filled);
-    await rm(workdir, { recursive: true, force: true });
   }
+  // What the cleanup cannot delete, such as a pack that still renews, fails the task.
+  try {
+    problems.push(...(await cleanup(filled)));
+  } catch (error) {
+    problems.push(`cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  await rm(workdir, { recursive: true, force: true });
+  return { ...result, pass: problems.length === 0, problems };
 }
 
 const results: Awaited<ReturnType<typeof runTask>>[] = [];
