@@ -112,6 +112,22 @@ describe("a spend command quotes, asks, and then spends", () => {
     expect(spendRequests()).toEqual([]);
   });
 
+  test("no line of stderr or stdout shows the token, even when the API echoes it", async () => {
+    state.quote = upgradeQuote({
+      lines: [
+        { code: "plan", description: `Bearer ${FAKE_TOKEN}`, amount: "100.000", period: null },
+      ],
+    });
+    const asked = await run(UPGRADE);
+    expect(asked.stderr).toContain("Bearer [REDACTED]");
+    const dry = await run([...UPGRADE, "--dry-run"]);
+    expect(dry.stdout).toContain("Bearer [REDACTED]");
+    const spent = await run([...UPGRADE, "--yes"]);
+    for (const output of [asked, dry, spent]) {
+      expect(output.stdout + output.stderr).not.toContain(FAKE_TOKEN);
+    }
+  });
+
   test("money stays the string the API sent, never a float", async () => {
     state.quote = upgradeQuote({ amount: "5.000" });
     const result = await run([...UPGRADE, "--yes"]);
@@ -170,14 +186,16 @@ describe("a spend command quotes, asks, and then spends", () => {
     expect(sentRoutes(api)).toEqual([]);
   });
 
-  test("quoteId is no input of the command, in a flag or in --json", async () => {
-    const flag = await run([...UPGRADE, "--expected", "1"]);
-    expect(flag.code).toBe(1);
-    const payload = await run([...UPGRADE, "--yes", "--json", '{"quoteId":"q-x"}']);
-    expect(payload.code).toBe(1);
-    expect(lastError(payload.stderr).code).toBe("CLI_INVALID_INPUT");
-    expect(sentRoutes(api)).toEqual([]);
-  });
+  for (const field of ["quoteId", "expectedAmount"]) {
+    test(`${field} in --json is refused as no input of the command, before any request`, async () => {
+      const result = await run([...UPGRADE, "--yes", "--json", JSON.stringify({ [field]: "1" })]);
+      expect(result.code).toBe(1);
+      const error = lastError(result.stderr);
+      expect(error.code).toBe("CLI_INVALID_INPUT");
+      expect(error.details).toEqual([{ field, message: expect.any(String) }]);
+      expect(sentRoutes(api)).toEqual([]);
+    });
+  }
 });
 
 describe("--dry-run of a spend command", () => {

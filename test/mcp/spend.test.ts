@@ -320,6 +320,31 @@ describe("elicitation", () => {
     expect(spends()).toEqual([]);
   });
 
+  for (const [label, stored] of [
+    ["a quote of another operation", upgradeQuote({ operationId: "compute.servers.create" })],
+    ["a used quote", upgradeQuote({ status: "used" })],
+    ["an expired quote", upgradeQuote({ status: "expired" })],
+  ] as const) {
+    test(`${label} is CLI_INVALID_INPUT, with no question and no spend`, async () => {
+      state.storedQuote = stored;
+      const handler = api.handler;
+      // The stored status wins over the open one the fake API adds.
+      api.handler = (request) =>
+        request.path === "/v1/billing/quotes/q-up" ? json(200, stored) : handler(request);
+      const session = await start({ allowWrites: true, allowSpend: true, elicitation: accept });
+      const result = await session.client.callTool({
+        name: "compute_upgrade_server",
+        arguments: UPGRADE,
+      });
+      expect(result.isError).toBe(true);
+      expect(resultJson(result)).toMatchObject({
+        error: { code: "CLI_INVALID_INPUT", details: [{ field: "quoteId" }] },
+      });
+      expect(session.elicitations).toEqual([]);
+      expect(spends()).toEqual([]);
+    });
+  }
+
   test("the same amount written with fewer decimals passes", async () => {
     const session = await start({ allowWrites: true, allowSpend: true, elicitation: accept });
     const result = await session.client.callTool({
@@ -361,12 +386,23 @@ describe("elicitation", () => {
     expect(sentRoutes(api)).toEqual(["POST /v1/servers/srv-1/upgrade/quote"]);
   });
 
-  test("no tool result shows the token", async () => {
+  test("no tool result and no question shows the token, even when the API echoes it", async () => {
+    // A proxy or a bug that echoes the credential must still never reach the client.
+    state.storedQuote = upgradeQuote({
+      lines: [
+        { code: "plan", description: `Bearer ${FAKE_TOKEN}`, amount: "100.000", period: null },
+      ],
+    });
+    state.spendAnswer = (request) =>
+      json(409, { error: "Conflict", code: "QUOTE_EXPIRED", seen: request.headers.authorization });
     const session = await start({ allowWrites: true, allowSpend: true, elicitation: accept });
     const result = await session.client.callTool({
       name: "compute_upgrade_server",
       arguments: UPGRADE,
     });
+    // The echoes did arrive, and were redacted.
+    expect(session.elicitations[0]).toContain("Bearer [REDACTED]");
+    expect(resultJson(result)).toMatchObject({ error: { seen: "Bearer [REDACTED]" } });
     expect(JSON.stringify(result)).not.toContain(FAKE_TOKEN);
     expect(session.elicitations.join("\n")).not.toContain(FAKE_TOKEN);
   });

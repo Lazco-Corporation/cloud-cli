@@ -557,8 +557,9 @@ class Shell {
       return;
     }
     if (quote !== null) {
+      // The quote's text comes from the API, which could echo a credential back.
       for (const line of describeQuote(quote)) {
-        writeNotice(this.io, line);
+        writeNotice(this.io, redactSecrets(line, this.secrets()));
       }
     } else {
       writeNotice(

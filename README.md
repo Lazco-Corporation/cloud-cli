@@ -100,7 +100,8 @@ lazco compute create --json - < server.json --dry-run
   Without a yes it exits 1 with `CLI_CONFIRM_REQUIRED`, and the error's `details.quote` holds the quote.
 - `--dry-run` of a command that spends asks for its quote, which charges nothing, and prints the request it would send with the quote in `body` and in `quote`.
   `--quote-id <id>` with `--expected-amount <amount>` spends with a quote you already have, such as the one of a dry run, and asks for no new one.
-  A quote is good for 10 minutes and for one spend. When the API refuses a quote, `lazco` never asks for a new one by itself, because that is a price nobody saw.
+  A quote is good for 10 minutes and for one spend.
+  When the API refuses a quote, `lazco` never asks for a new one by itself, because that is a price nobody saw.
 - A command that spends sends an `Idempotency-Key`, so a retry after a lost answer never charges twice.
   `--idempotency-key <key>` chooses the key: run the same command again with the same key, within 24 hours, to get the first result instead of a second charge.
 - A task such as a deploy is waited for. `--no-wait` prints the accepted task at once.

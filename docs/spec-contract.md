@@ -73,14 +73,19 @@ A command's input whose name is a global flag, or the operation flag `--idempote
 A `spend` operation takes money from the account balance, and its body requires `quoteId` and `expectedAmount`.
 Its `quote` names the quote operation, a `write` operation at `<spend path>/quote` that prices the same input and charges nothing.
 
-- The command's input, `--json` and `--describe` hold neither `quoteId` nor `expectedAmount`. `--describe` names the quote operation in `quote`.
+- The command's input, `--json` and `--describe` hold neither `quoteId` nor `expectedAmount`.
+  `--describe` names the quote operation in `quote`.
 - A run sends the quote operation first, with the path parameters and the body fields the quote operation takes, and a key of its own when it declares one.
 - It writes the quote to stderr, then asks or needs `--yes`, and sends the spend with `quoteId` and the quote's `amount` unchanged as `expectedAmount`.
 - Without a yes it exits 1 with `CLI_CONFIRM_REQUIRED`, and the error's `details.quote` holds the quote.
 - `--dry-run` sends the quote request only, and prints the spend request with the quote in `body` and the member `quote`.
-- `--quote-id ID` with `--expected-amount AMOUNT` sends a quote the caller has, with no quote request. One without the other, or an amount that is not a decimal of at most 3 decimals, is `CLI_INVALID_INPUT` before any request. With `--dry-run` they send nothing, and `quote` is `null`.
-- A `QUOTE_*` answer exits 1. The CLI never gets a new quote and resends, and the client never retries a `409` other than `IDEMPOTENCY_KEY_IN_PROGRESS`.
-- Every money value stays the decimal string the API sent. Readable text shows TWD with the decimals the value carries, such as `NT$52.5`.
+- `--quote-id ID` with `--expected-amount AMOUNT` sends a quote the caller has, with no quote request.
+  One without the other, or an amount that is not a decimal of at most 3 decimals, is `CLI_INVALID_INPUT` before any request.
+  With `--dry-run` they send nothing, and `quote` is `null`.
+- A `QUOTE_*` answer exits 1.
+  The CLI never gets a new quote and resends, and the client never retries a `409` other than `IDEMPOTENCY_KEY_IN_PROGRESS`.
+- Every money value stays the decimal string the API sent.
+  Readable text shows TWD with the decimals the value carries, such as `NT$52.5`.
 
 An MCP spend tool takes `quoteId` and `expectedAmount` as required inputs, and its quote tool takes the rest.
 Both register only with `--allow-writes --allow-spend`, and a quote tool never registers without its spend tool.

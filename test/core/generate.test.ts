@@ -407,6 +407,18 @@ describe("spend operations and their quotes", () => {
     expect(byCommand(generated.operations, "compute quote-create").isQuote).toBe(true);
   });
 
+  test("the quote of a hidden spend operation stays a quote", () => {
+    const document = loadFixture("spend");
+    const upgrade = document.paths["/v1/servers/{serverId}/upgrade"]?.post;
+    if (!upgrade) throw new Error("fixture changed");
+    upgrade["x-lazco"] = { ...(upgrade["x-lazco"] as Record<string, unknown>), expose: false };
+    const { operations: changed } = generateSurface(document, ajv);
+    expect(changed.map((operation) => operation.command.join(" "))).not.toContain(
+      "compute upgrade",
+    );
+    expect(byCommand(changed, "compute quote-upgrade").isQuote).toBe(true);
+  });
+
   test("a spend operation whose body does not require both quote fields is no command", () => {
     const document = loadFixture("spend");
     const schema = document.paths["/v1/servers/{serverId}/upgrade"]?.post?.requestBody?.content?.[

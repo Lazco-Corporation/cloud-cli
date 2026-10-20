@@ -142,14 +142,14 @@ export function generateSurface(document: OpenApiDocument, ajv: Ajv2020): Genera
       if (!source) {
         continue;
       }
-      const check = checkAnnotation(source["x-lazco"]);
-      if (!check.exposed) {
-        continue;
-      }
-      // Read as given, so a quote stays a quote even when its spend is skipped.
+      // Read as given, so a quote stays a quote even when its spend is hidden or skipped.
       const quoteName = rawSpendQuote(source["x-lazco"]);
       if (quoteName !== undefined) {
         namedQuotes.add(quoteName);
+      }
+      const check = checkAnnotation(source["x-lazco"]);
+      if (!check.exposed) {
+        continue;
       }
       try {
         if ("problem" in check) {

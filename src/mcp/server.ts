@@ -336,6 +336,21 @@ export class McpSession {
       path: `/billing/quotes/${encodeURIComponent(quoteId as string)}`,
     });
     const quote: Quote = readQuote(requireJson(response), "GET /billing/quotes/{quoteId}");
+    // The user is asked only about a quote this spend can use.
+    if (quote.operationId !== operation.operationId) {
+      throw new CliError(
+        "CLI_INVALID_INPUT",
+        `The quote ${quote.quoteId} is for ${String(quote.operationId)}, not for this tool. Get a quote from its quote tool`,
+        [{ field: QUOTE_ID_INPUT, message: "must be a quote of this tool's quote tool" }],
+      );
+    }
+    if (quote.status !== undefined && quote.status !== "open") {
+      throw new CliError(
+        "CLI_INVALID_INPUT",
+        `The quote ${quote.quoteId} is ${String(quote.status)}. Get a new quote and show it to the user`,
+        [{ field: QUOTE_ID_INPUT, message: "must be an open quote" }],
+      );
+    }
     const expected = input[EXPECTED_AMOUNT_INPUT] as string;
     if (!sameAmount(expected, quote.amount)) {
       throw new CliError(
