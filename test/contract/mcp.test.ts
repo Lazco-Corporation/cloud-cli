@@ -74,14 +74,18 @@ const spendTools = operations
   .flatMap((operation) => [operation.toolName as string, operation.quote?.toolName ?? ""])
   .filter(Boolean);
 
-/** The spend tools and quote tools of the features the organization has on. */
+/** The spend tools and quote tools of the features the organization has on, in pairs. */
 const reachableSpendTools = operations
   .filter(
     (operation) =>
-      operation.kind === "spend" && operation.toolName !== null && featureOn(operation),
+      operation.kind === "spend" &&
+      operation.toolName !== null &&
+      featureOn(operation) &&
+      operation.quote !== null &&
+      operation.quote.toolName !== null &&
+      featureOn(operation.quote),
   )
-  .flatMap((operation) => [operation.toolName as string, operation.quote?.toolName ?? ""])
-  .filter(Boolean);
+  .flatMap((operation) => [operation.toolName as string, operation.quote?.toolName as string]);
 
 function resultText(result: Awaited<ReturnType<Client["callTool"]>>): string {
   return (result.content as Array<{ type: string; text: string }>)[0]?.text ?? "null";

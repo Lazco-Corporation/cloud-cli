@@ -214,6 +214,15 @@ describe("a spend command quotes, asks, and then spends", () => {
     expect(result.stderr).not.toContain("undefined");
   });
 
+  test("an interval this version does not know is named as the API sent it, even one an object inherits", async () => {
+    state.quote = upgradeQuote({
+      recurring: { amount: "250.000", interval: "constructor", startsAt: "2026-11-01" },
+    });
+    const result = await run(UPGRADE);
+    expect(result.stderr).toContain("then NT$250 every constructor, from 2026-11-01");
+    expect(result.stderr).not.toContain("function");
+  });
+
   test("the key notice quotes a quote id a shell would split", async () => {
     state.quote = upgradeQuote({ quoteId: "q 'x" });
     state.spendAnswer = () => new Response("<html>502</html>", { status: 502 });

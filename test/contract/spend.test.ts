@@ -36,8 +36,15 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await home.cleanup();
-});
+  // A pack left by a spending test that timed out is deleted here too, before it renews.
+  try {
+    if (SPEND_ALLOWED) {
+      await deleteLivePacks();
+    }
+  } finally {
+    await home.cleanup();
+  }
+}, TIMEOUT_MS);
 
 function succeeded(run: Run): { code: number; stderr: string } {
   return { code: run.code, stderr: run.stderr };

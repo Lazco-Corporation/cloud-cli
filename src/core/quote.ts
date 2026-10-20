@@ -152,7 +152,9 @@ export function describeQuote(quote: Quote): string[] {
     const interval =
       typeof recurring.interval !== "string"
         ? "at an interval the API did not send"
-        : (INTERVALS[recurring.interval] ?? `every ${recurring.interval}`);
+        : Object.hasOwn(INTERVALS, recurring.interval)
+          ? INTERVALS[recurring.interval]
+          : `every ${recurring.interval}`;
     const from = typeof recurring.startsAt === "string" ? `, from ${recurring.startsAt}` : "";
     lines.push(`then ${formatTwd(recurring.amount)} ${interval}${from}`);
   }
