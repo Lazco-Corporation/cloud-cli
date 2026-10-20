@@ -260,6 +260,16 @@ describe("lazco mcp install", () => {
     ]);
   });
 
+  test("--allow-spend without --allow-writes is CLI_INVALID_INPUT and writes nothing", async () => {
+    await fakeProgram("lazco");
+    const claude = await fakeProgram("claude");
+    const run = await install(["--client", "claude-code", "--allow-spend"]);
+    expect(run.code).toBe(1);
+    expect(run.error.error.code).toBe("CLI_INVALID_INPUT");
+    // The fake claude writes a .calls file when it runs, and it never ran.
+    expect(await Bun.file(`${claude}.calls`).exists()).toBe(false);
+  });
+
   test("claude-code goes through claude mcp add-json at user scope, after a remove", async () => {
     const lazco = await fakeProgram("lazco");
     const claude = await fakeProgram("claude");

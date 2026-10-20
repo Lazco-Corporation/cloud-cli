@@ -163,6 +163,7 @@ export function selectTools(
       operation.toolName !== null && operation.kind === "read" && isTaskReader(operation),
   )?.toolName;
   const tools: ToolEntry[] = [];
+  let spendTools = 0;
   const add = (operation: Operation): void => {
     if (tools.some((tool) => tool.name === operation.toolName)) {
       return;
@@ -198,6 +199,7 @@ export function selectTools(
       }
       add(operation);
       add(quote);
+      spendTools += 1;
       continue;
     }
     const allowed =
@@ -217,12 +219,29 @@ export function selectTools(
       : options.allowWrites
         ? null
         : "it was started without --allow-writes. Start lazco mcp with --allow-writes to add the write tools",
-    noSpendReason: spends
-      ? null
-      : options.allowSpend
-        ? "spending needs a session that can write, with --allow-writes too"
-        : "it was started without --allow-spend. Start lazco mcp with --allow-writes --allow-spend to add the spend tools and their quote tools",
+    noSpendReason: noSpendReason(options, readOnlyScope, spendTools),
   };
+}
+
+/** Why a session offers no spend tool, or `null` when it offers at least one. */
+function noSpendReason(
+  options: { allowWrites: boolean; allowSpend: boolean; facts: SessionFacts },
+  readOnlyScope: boolean,
+  spendTools: number,
+): string | null {
+  if (readOnlyScope) {
+    return `the token's scope is ${options.facts.scope}, even with --allow-spend`;
+  }
+  if (!options.allowSpend) {
+    return "it was started without --allow-spend. Start lazco mcp with --allow-writes --allow-spend to add the spend tools and their quote tools";
+  }
+  if (!options.allowWrites) {
+    return "it was started with --allow-spend but without --allow-writes, and spending needs both";
+  }
+  if (spendTools === 0) {
+    return "no spend operation of the spec has a tool and a quote tool for this organization";
+  }
+  return null;
 }
 
 /** The tool name of the task reader in a tool set, when it is registered. */

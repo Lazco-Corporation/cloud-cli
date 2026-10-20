@@ -12,7 +12,8 @@ export function extractValueFlag(
 ): { value: string | undefined; rest: string[] } {
   const rest: string[] = [];
   let value: string | undefined;
-  const pattern = new RegExp(`^--${name}(?:=([\\s\\S]*))?$`);
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^--${escaped}(?:=([\\s\\S]*))?$`);
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index] as string;
     if (token === "--") {

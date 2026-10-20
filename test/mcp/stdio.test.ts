@@ -137,9 +137,10 @@ describe("lazco mcp on stdio", () => {
 
   test("--allow-spend is a flag of lazco mcp, and the instructions say whether spend tools are offered", async () => {
     const { client } = await connect(["--allow-writes", "--allow-spend"]);
-    const instructions = client.getInstructions() ?? "";
-    expect(instructions).toContain("Spend tools take money from the account balance");
-    expect(instructions).not.toContain("No spend tool is offered");
+    // The surface fixture's one spend operation has mcp false, so no spend tool comes of it.
+    expect(client.getInstructions()).toContain(
+      "No spend tool is offered, because no spend operation of the spec has a tool and a quote tool",
+    );
   });
 
   test("without --allow-spend the instructions say how to add the spend tools", async () => {

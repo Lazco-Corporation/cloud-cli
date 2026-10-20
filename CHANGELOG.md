@@ -11,7 +11,7 @@ The newest release is at the top.
 - JSON on stdout, one error shape on stderr with fixed `CLI_` codes, and exit codes 0 and 1.
 - `--describe`, `--dry-run`, `--fields`, `--page-all`, `--json`, `--yes`, `--wait`, `--timeout`, `--human`, `--profile` and `--api-url`.
 - An `Idempotency-Key` on every request whose operation declares one, kept the same on every retry, so a retry after a lost answer never charges twice.
-  `--idempotency-key <key>` chooses it, and a run with no final answer names the key on stderr.
+  Where the spec requires the header, `--idempotency-key <key>` chooses it, and a run with a generated key and no final answer names the key on stderr.
 - A command that spends asks the API for a quote first, shows it on stderr, asks or needs `--yes`, and spends exactly the quoted amount from the account balance.
   `--dry-run` asks for the quote only, `--quote-id` with `--expected-amount` spends with a quote you already have, and a refused quote is never replaced by a new one.
 - `lazco auth login` with your Lazco account in a browser (`--sso`), on this machine or with a code on another device (`--device`), or with an API token (`--with-token`), kept in the OS keychain, or in the config file with mode 0600 when there is no keychain.

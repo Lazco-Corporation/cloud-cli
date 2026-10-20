@@ -18,7 +18,11 @@ const MONEY_TEXT = /^(-?)([0-9]+)(?:\.([0-9]+))?$/;
  */
 export type Quote = { quoteId: string; amount: string; [field: string]: unknown };
 
-/** The body of a quote answer, or `CLI_BAD_RESPONSE` when it holds no quote id or no amount. */
+/**
+ * The body of a quote answer, or `CLI_BAD_RESPONSE` when it holds no quote id,
+ * or an amount the spend cannot send back as `expectedAmount`. That is found
+ * before anyone is asked, never after a yes.
+ */
 export function readQuote(body: unknown, source: string): Quote {
   const value = body as { quoteId?: unknown; amount?: unknown } | null;
   if (
@@ -28,11 +32,11 @@ export function readQuote(body: unknown, source: string): Quote {
     typeof value.quoteId !== "string" ||
     value.quoteId === "" ||
     typeof value.amount !== "string" ||
-    !MONEY_TEXT.test(value.amount)
+    !EXPECTED_AMOUNT_TEXT.test(value.amount)
   ) {
     throw new CliError(
       "CLI_BAD_RESPONSE",
-      `${source} answered no quote with a quoteId and a decimal amount`,
+      `${source} answered no quote with a quoteId and an amount of TWD with at most 3 decimals`,
     );
   }
   return value as Quote;
@@ -99,10 +103,19 @@ const INTERVALS: Readonly<Record<string, string>> = {
 type Period = { start?: unknown; end?: unknown } | null | undefined;
 
 function periodText(period: Period): string | undefined {
-  if (period === null || typeof period !== "object") {
+  if (
+    period === null ||
+    typeof period !== "object" ||
+    typeof period.start !== "string" ||
+    typeof period.end !== "string"
+  ) {
     return undefined;
   }
-  return `${String(period.start)} to ${String(period.end)}`;
+  return `${period.start} to ${period.end}`;
+}
+
+function isMoney(value: unknown): value is string {
+  return typeof value === "string" && MONEY_TEXT.test(value);
 }
 
 /**
@@ -118,7 +131,8 @@ export function describeQuote(quote: Quote): string[] {
     }
     const label = typeof item.description === "string" ? item.description : String(item.code);
     const period = periodText(item.period as Period);
-    lines.push(`  ${label}: ${formatTwd(item.amount)}${period ? ` (${period})` : ""}`);
+    const amount = isMoney(item.amount) ? `: ${formatTwd(item.amount)}` : "";
+    lines.push(`  ${label}${amount}${period ? ` (${period})` : ""}`);
   }
   const period = periodText(quote.period as Period);
   if (period) {
@@ -129,13 +143,12 @@ export function describeQuote(quote: Quote): string[] {
     interval?: unknown;
     startsAt?: unknown;
   } | null;
-  if (recurring !== null && typeof recurring === "object") {
+  if (recurring !== null && typeof recurring === "object" && isMoney(recurring.amount)) {
     const interval = INTERVALS[String(recurring.interval)] ?? `every ${String(recurring.interval)}`;
-    lines.push(
-      `then ${formatTwd(recurring.amount)} ${interval}, from ${String(recurring.startsAt)}`,
-    );
+    const from = typeof recurring.startsAt === "string" ? `, from ${recurring.startsAt}` : "";
+    lines.push(`then ${formatTwd(recurring.amount)} ${interval}${from}`);
   }
-  if (quote.accountBalance !== undefined) {
+  if (isMoney(quote.accountBalance)) {
     lines.push(`account balance: ${formatTwd(quote.accountBalance)}`);
   }
   if (quote.sufficient === false) {
@@ -143,8 +156,8 @@ export function describeQuote(quote: Quote): string[] {
       "the account balance is short of this amount. Top up the account balance before you spend",
     );
   }
-  if (quote.expiresAt !== undefined) {
-    lines.push(`the quote expires at ${String(quote.expiresAt)}, and is good for one spend`);
+  if (typeof quote.expiresAt === "string") {
+    lines.push(`the quote expires at ${quote.expiresAt}, and is good for one spend`);
   }
   return lines;
 }

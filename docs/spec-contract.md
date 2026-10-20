@@ -47,7 +47,7 @@ An operation is also skipped, with one warning each, when:
 - `upload` names an uploader this version lacks
 - two operations share a command or a tool name, or a command is also a group of other commands
 - a `$ref` cannot be resolved, the body is not `application/json`, or a header or cookie parameter other than `Idempotency-Key` is required
-- a `spend` operation has no `quote`, its quote operation is not in the spec or is a `spend` operation itself, or its body does not require `quoteId` and `expectedAmount` as top-level properties
+- a `spend` operation has no `quote`, its quote operation is not in the spec or is not `write`, it does not require `Idempotency-Key`, or its body does not require `quoteId` and `expectedAmount` as top-level body properties
 
 ## The input object
 
@@ -71,19 +71,21 @@ A command's input whose name is a global flag, or the operation flag `--idempote
 ## Spend operations
 
 A `spend` operation takes money from the account balance, and its body requires `quoteId` and `expectedAmount`.
-Its `quote` names the quote operation, a `write` operation at `<spend path>/quote` that prices the same input and charges nothing.
+Its `quote` names the quote operation, a `write` operation that prices the same input and charges nothing.
+The API mounts it at `<spend path>/quote`, and the CLI finds it by its `operationId` only.
 
 - The command's input, `--json` and `--describe` hold neither `quoteId` nor `expectedAmount`.
   `--describe` names the quote operation in `quote`.
-- A run sends the quote operation first, with the path parameters and the body fields the quote operation takes, and a key of its own when it declares one.
+- A run sends the quote operation first, with the path parameters and the body fields the quote operation takes, or the whole input when its body is open, and a key of its own when it declares one.
 - It writes the quote to stderr, then asks or needs `--yes`, and sends the spend with `quoteId` and the quote's `amount` unchanged as `expectedAmount`.
-- Without a yes it exits 1 with `CLI_CONFIRM_REQUIRED`, and the error's `details.quote` holds the quote.
+- Without a yes it exits 1 with `CLI_CONFIRM_REQUIRED`, and the error's `details.quote` holds the quote, or the `quoteId` and `amount` of `--quote-id` and `--expected-amount`.
 - `--dry-run` sends the quote request only, and prints the spend request with the quote in `body` and the member `quote`.
 - `--quote-id ID` with `--expected-amount AMOUNT` sends a quote the caller has, with no quote request.
   One without the other, or an amount that is not a decimal of at most 3 decimals, is `CLI_INVALID_INPUT` before any request.
   With `--dry-run` they send nothing, and `quote` is `null`.
 - A `QUOTE_*` answer exits 1.
   The CLI never gets a new quote and resends, and the client never retries a `409` other than `IDEMPOTENCY_KEY_IN_PROGRESS`.
+- When a spend run ends with no final answer, the key notice also names `--quote-id` and `--expected-amount`, because a run again with a new quote would send another body under the same key.
 - Every money value stays the decimal string the API sent.
   Readable text shows TWD with the decimals the value carries, such as `NT$52.5`.
 

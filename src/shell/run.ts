@@ -30,7 +30,7 @@ import {
   executeOperation,
   type Task,
 } from "../core/request/execute";
-import type { InputProblem } from "../core/request/guard";
+import { guardPathParameters, type InputProblem } from "../core/request/guard";
 import { extractIdempotencyKeyFlag, newIdempotencyKey } from "../core/request/idempotency";
 import { nextPageFlag, readPage, walkPages } from "../core/request/paginate";
 import { RateLimiter } from "../core/request/rateLimiter";
@@ -477,10 +477,14 @@ class Shell {
         return;
       }
       // quoteId and expectedAmount are no input of the command, so --json cannot carry them.
+      guardPathParameters(operation.pathParameters, input);
       this.validator.check(operation.commandInputSchema, input);
-      // The spend request is checked with the quote it will carry, or a stand-in until it comes.
-      prepare({ ...input, ...quoteFields(quoteFlags.given ?? STAND_IN_QUOTE) });
+      if (quoteFlags.given !== undefined) {
+        prepare({ ...input, ...quoteFields(quoteFlags.given) });
+      }
     });
+    // The quote a spend run sends, so the way back to its result can name it.
+    const spent: { quote?: GivenQuote } = {};
     try {
       if (operation.kind === "spend" && operation.quote !== null) {
         await this.sendSpend(
@@ -491,6 +495,7 @@ class Shell {
           quoteFlags.given,
           prepare,
           output,
+          spent,
         );
       } else {
         await this.sendOperation(entry, operation, input, prepare, output);
@@ -504,9 +509,13 @@ class Shell {
         !BEFORE_KEYED_REQUEST.has(error as object) &&
         outcomeUnknown(error)
       ) {
+        // A spend run again must carry the same quote, or its body differs from the first.
+        const quoteFlagsText = spent.quote
+          ? ` --quote-id ${spent.quote.quoteId} --expected-amount ${spent.quote.amount}`
+          : "";
         writeNotice(
           this.io,
-          `the request may have run. To get its result instead of running it again, run the same command with --idempotency-key ${idempotencyKey}`,
+          `the request may have run. To get its result instead of running it again, run the same command with --idempotency-key ${idempotencyKey}${quoteFlagsText}`,
         );
       }
       throw error;
@@ -528,6 +537,7 @@ class Shell {
     given: GivenQuote | undefined,
     prepare: (input: Record<string, unknown>) => ApiRequest,
     output: { human: boolean; fields: string[] | undefined; secrets: string[] },
+    spent: { quote?: GivenQuote },
   ): Promise<void> {
     const session = await this.session();
     const needsCredential = given === undefined || !this.flags.dryRun;
@@ -546,7 +556,10 @@ class Shell {
         throw error;
       }
     }
-    const fields = quoteFields(quote ?? (given as GivenQuote));
+    const used: GivenQuote = quote ?? (given as GivenQuote);
+    const fields = quoteFields(used);
+    // The whole spend request is checked before anyone is asked about it.
+    checkBeforeConfirm(operation, () => prepare({ ...input, ...fields }));
     if (this.flags.dryRun) {
       const request = prepare({ ...input, ...fields });
       writeResult(
@@ -581,13 +594,14 @@ class Shell {
       );
     } catch (error) {
       // The price stays readable in the error, so a script can decide on it.
-      if (quote !== null && error instanceof CliError && error.code === "CLI_CONFIRM_REQUIRED") {
+      if (error instanceof CliError && error.code === "CLI_CONFIRM_REQUIRED") {
         const details =
           error.details !== null && typeof error.details === "object" ? error.details : {};
-        throw new CliError(error.code, error.message, { ...details, quote });
+        throw new CliError(error.code, error.message, { ...details, quote: quote ?? used });
       }
       throw error;
     }
+    spent.quote = used;
     const body = await executeOperation(
       operation,
       prepare({ ...confirmed, ...fields }),
@@ -612,10 +626,13 @@ class Shell {
     input: Record<string, unknown>,
   ): Promise<Quote> {
     const session = await this.session();
+    // A closed quote schema takes only its own fields. An open one takes the input as it is,
+    // so it prices every field the spend will send.
     const taken = Object.keys((quoteOperation.inputSchema.properties ?? {}) as object);
-    const quoteInput = Object.fromEntries(
-      Object.entries(input).filter(([name]) => taken.includes(name)),
-    );
+    const quoteInput =
+      quoteOperation.inputSchema.additionalProperties === false
+        ? Object.fromEntries(Object.entries(input).filter(([name]) => taken.includes(name)))
+        : input;
     const request = prepareRequest(quoteOperation, quoteInput, {
       apiUrl: session.apiUrl,
       validator: this.validator,
@@ -755,9 +772,6 @@ class Shell {
     }
   }
 }
-
-/** The quote fields a spend input is checked with before its quote is known. */
-const STAND_IN_QUOTE: GivenQuote = { quoteId: "stand-in", amount: "0" };
 
 /**
  * Errors that ended a spend command before its keyed request was sent, such

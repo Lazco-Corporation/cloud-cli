@@ -173,14 +173,24 @@ export function generateSurface(document: OpenApiDocument, ajv: Ajv2020): Genera
     }
   }
 
-  const byCommand = groupBy(candidates, (operation) => operation.command.join(" "));
+  // A spend without a usable quote is dropped first, so it never makes another operation a duplicate.
+  const candidateIds = new Map(candidates.map((operation) => [operation.operationId, operation]));
+  const usable = candidates.filter((operation) => {
+    const problem = quoteProblem(operation, candidateIds);
+    if (problem !== undefined) {
+      skip(operation, "no-quote", problem);
+    }
+    return problem === undefined;
+  });
+
+  const byCommand = groupBy(usable, (operation) => operation.command.join(" "));
   const byTool = groupBy(
-    candidates.filter((operation) => operation.toolName !== null),
+    usable.filter((operation) => operation.toolName !== null),
     (operation) => operation.toolName as string,
   );
   const commandKeys = [...byCommand.keys()];
   const kept: Operation[] = [];
-  for (const operation of candidates) {
+  for (const operation of usable) {
     const command = operation.command.join(" ");
     if ((byCommand.get(command)?.length ?? 0) > 1) {
       skip(operation, "duplicate-command", `another operation also uses the command "${command}"`);
@@ -211,14 +221,32 @@ export function generateSurface(document: OpenApiDocument, ajv: Ajv2020): Genera
     const name = operation.annotation.quote as string;
     const quote = byOperationId.get(name);
     if (quote === undefined) {
-      skip(operation, "no-quote", `its quote operation "${name}" is not in the spec`);
-    } else if (quote.kind === "spend") {
-      skip(operation, "no-quote", `its quote operation "${name}" is a spend operation itself`);
+      skip(operation, "no-quote", `its quote operation "${name}" is skipped`);
     } else {
       operations.push({ ...operation, quote });
     }
   }
   return { operations, skipped };
+}
+
+/** Why a spend operation's quote operation cannot serve it, or `undefined` when it can. */
+function quoteProblem(
+  operation: Operation,
+  candidates: ReadonlyMap<string, Operation>,
+): string | undefined {
+  if (operation.kind !== "spend") {
+    return undefined;
+  }
+  const name = operation.annotation.quote as string;
+  const quote = candidates.get(name);
+  if (quote === undefined) {
+    return `its quote operation "${name}" is not in the spec`;
+  }
+  // A quote stores a quote and charges nothing: any other kind is a mistake of the spec.
+  if (quote.kind !== "write") {
+    return `its quote operation "${name}" is ${quote.kind}, not write`;
+  }
+  return undefined;
 }
 
 /** The `x-lazco.quote` of a raw spend annotation, whether or not the rest of it is valid. */
@@ -357,8 +385,16 @@ function buildOperation(
   if (Object.keys(resolved.definitions).length > 0) {
     inputSchema.$defs = resolved.definitions;
   }
+  if (annotation.kind === "spend" && idempotencyKey !== "required") {
+    throw new SkipError(
+      "unsupported-parameter",
+      `a spend operation must declare the header "${IDEMPOTENCY_KEY_HEADER}" as required`,
+    );
+  }
   const commandInputSchema =
-    annotation.kind === "spend" ? withoutQuoteInputs(inputSchema, body.mapping) : inputSchema;
+    annotation.kind === "spend"
+      ? withoutQuoteInputs(inputSchema, body.mapping, [...pathParameters, ...queryParameters])
+      : inputSchema;
 
   return {
     operationId: source.operationId ?? `${method} ${path}`,
@@ -387,11 +423,17 @@ function buildOperation(
  * A spend operation's input less `quoteId` and `expectedAmount`, which must
  * be required top-level body fields so its command can fill them.
  */
-function withoutQuoteInputs(schema: JsonSchema, mapping: BodyMapping): JsonSchema {
+function withoutQuoteInputs(
+  schema: JsonSchema,
+  mapping: BodyMapping,
+  parameters: readonly string[],
+): JsonSchema {
   const properties = (schema.properties ?? {}) as Record<string, JsonSchema>;
   const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+  // A parameter of the same name would carry the field in the URL, not in the body.
   const missing = QUOTE_INPUTS.filter(
-    (name) => !Object.hasOwn(properties, name) || !required.includes(name),
+    (name) =>
+      !Object.hasOwn(properties, name) || !required.includes(name) || parameters.includes(name),
   );
   if (mapping.mode !== "merged" || missing.length > 0) {
     throw new SkipError(

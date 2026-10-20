@@ -80,6 +80,23 @@ describe("the spend tier", () => {
     );
   });
 
+  test("a read token with both flags gets read tools, and the instructions name the scope", async () => {
+    const handler = api.handler;
+    api.handler = (request) =>
+      request.path === "/v1/whoami"
+        ? json(200, {
+            organization: { id: "org-1", name: "Spend Org" },
+            principal: { kind: "api_token", scope: "read" },
+            features: {},
+          })
+        : handler(request);
+    const session = await start();
+    expect(await toolNames(session)).toEqual(READ_TOOLS);
+    expect(session.client.getInstructions()).toContain(
+      "No spend tool is offered, because the token's scope is read",
+    );
+  });
+
   for (const [label, flags] of [
     ["the default start", {}],
     ["--allow-writes alone", { allowWrites: true }],
@@ -165,10 +182,13 @@ describe("a spend tool", () => {
       expect(quoteTool?.annotations?.readOnlyHint).toBe(false);
       expect(quoteTool?.annotations?.destructiveHint).toBe(false);
       // The quote tool takes the spend tool's inputs, less the quote fields.
+      const lessQuote = (names: readonly string[] = []) =>
+        names.filter((name) => name !== "quoteId" && name !== "expectedAmount").sort();
       expect(Object.keys(quoteTool?.inputSchema.properties ?? {}).sort()).toEqual(
-        Object.keys(tool?.inputSchema.properties ?? {})
-          .filter((name) => name !== "quoteId" && name !== "expectedAmount")
-          .sort(),
+        lessQuote(Object.keys(tool?.inputSchema.properties ?? {})),
+      );
+      expect([...((quoteTool?.inputSchema.required as string[] | undefined) ?? [])].sort()).toEqual(
+        lessQuote(tool?.inputSchema.required as string[] | undefined),
       );
     }
   });
@@ -182,18 +202,22 @@ describe("a spend tool", () => {
   });
 
   test("quote, then spend, buys one pack with the quoted amount and a new key", async () => {
-    state.quote = quoteBody({ quoteId: "q-pack", amount: "52.500" });
+    state.quote = quoteBody({
+      quoteId: "q-pack",
+      operationId: "labs.pages.packs.create",
+      amount: "52.500",
+    });
     const session = await start();
     const quoted = resultJson(
       await session.client.callTool({ name: "labs_pages_quote_create_pack", arguments: {} }),
     ) as { quoteId: string; amount: string };
-    expect(quoted as unknown).toEqual(quoteBody({ quoteId: "q-pack", amount: "52.500" }));
+    expect(quoted as unknown).toEqual(state.quote);
     const result = await session.client.callTool({
       name: "labs_pages_create_pack",
       arguments: { quoteId: quoted.quoteId, expectedAmount: quoted.amount },
     });
     expect(result.isError).toBeUndefined();
-    expect(resultJson(result)).toEqual({ id: "pack-1", status: "active" });
+    expect(resultJson(result)).toEqual({ spent: "labs.pages.packs.create" });
     expect(sentRoutes(api)).toEqual([
       "POST /v1/labs/pages/packs/quote",
       "POST /v1/labs/pages/packs",
@@ -327,10 +351,6 @@ describe("elicitation", () => {
   ] as const) {
     test(`${label} is CLI_INVALID_INPUT, with no question and no spend`, async () => {
       state.storedQuote = stored;
-      const handler = api.handler;
-      // The stored status wins over the open one the fake API adds.
-      api.handler = (request) =>
-        request.path === "/v1/billing/quotes/q-up" ? json(200, stored) : handler(request);
       const session = await start({ allowWrites: true, allowSpend: true, elicitation: accept });
       const result = await session.client.callTool({
         name: "compute_upgrade_server",

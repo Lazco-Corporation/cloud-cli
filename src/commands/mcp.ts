@@ -117,6 +117,14 @@ const install: HandwrittenCommand = {
       serverArgs.push("--allow-writes");
     }
     if (input.allowSpend === true) {
+      // The server offers spend tools only with both, so one alone is a mistake to say now.
+      if (input.allowWrites !== true) {
+        throw new CliError(
+          "CLI_INVALID_INPUT",
+          "--allow-spend needs --allow-writes: the spend tools are offered only with both",
+          [{ field: "allowSpend", message: "needs --allow-writes" }],
+        );
+      }
       serverArgs.push("--allow-spend");
     }
     const launcher = await resolveLauncher({

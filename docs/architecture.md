@@ -15,7 +15,8 @@ The hand-written part is the shell around it: sign-in, profiles, output, and the
 6. `src/shell/input.ts` builds the one input object from positionals, flags and `--json`.
 7. `src/core/request/build.ts` runs the path guard (`src/core/request/guard.ts`) and the JSON Schema check (`src/core/request/validate.ts`, Ajv), then splits the input into path, query, `If-Match` and body.
 8. `src/shell/confirm.ts` asks for a `destructive` or `spend` command, or needs `--yes`.
-   A `spend` command first sends its quote operation and shows the quote on stderr (`src/core/quote.ts`), and its request carries the quote's `quoteId` and `amount` as `expectedAmount`, see "Spend operations" in `docs/spec-contract.md`.
+   A `spend` command first sends its quote operation and shows the quote on stderr (`src/core/quote.ts`), unless `--quote-id` and `--expected-amount` give one.
+   Its request carries the quote's `quoteId` and `amount` as `expectedAmount`, see "Spend operations" in `docs/spec-contract.md`.
 9. `src/core/request/execute.ts` sends it through `src/core/request/client.ts`, reads the ETag first for `concurrency: etag`, and waits for an `async: task` operation.
    An operation with `upload` goes to its uploader in `src/uploads/` instead, which sends its own requests through the same client, see "Uploaders" in `docs/spec-contract.md`.
 10. `src/shell/output.ts` writes the answer to stdout, or the error to stderr.

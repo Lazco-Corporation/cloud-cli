@@ -1,3 +1,4 @@
+import { HTTP_METHODS, type OpenApiDocument } from "../../src/core/spec/types";
 import { FakeApi, json, type RecordedRequest } from "./fakeApi";
 import { loadFixture } from "./fixtures";
 import { quoteBody } from "./quotes";
@@ -12,27 +13,44 @@ export type SpendState = {
   spendAnswer?: (request: RecordedRequest) => Response;
   /** The quote `GET /v1/billing/quotes/:quoteId` answers, or `null` for its 404. */
   storedQuote?: Record<string, unknown> | null;
+  /** The spec to serve, in place of the `spend` fixture. */
+  spec?: OpenApiDocument;
 };
 
-const SPEND_ROUTES: ReadonlyMap<string, () => unknown> = new Map<string, () => unknown>([
-  ["POST /v1/servers", () => ({ taskId: "t-1", serverId: "srv-9" })],
-  ["POST /v1/servers/srv-1/upgrade", () => ({ id: "srv-1", planSlug: "s2" })],
-  ["POST /v1/labs/pages/packs", () => ({ id: "pack-1", status: "active" })],
-  ["DELETE /v1/servers/srv-1/cancel-renewal", () => ({ id: "srv-1", renewing: true })],
-  ["POST /v1/servers/srv-1/reinstall", () => ({ taskId: "t-2" })],
-]);
+type SpendRoute = { method: string; pattern: RegExp; operationId: string };
+
+/** Every spend operation of a spec, as the method and a pattern of its path. */
+function spendRoutes(spec: OpenApiDocument): SpendRoute[] {
+  const routes: SpendRoute[] = [];
+  for (const [path, item] of Object.entries(spec.paths)) {
+    for (const method of HTTP_METHODS) {
+      const operation = item[method];
+      const annotation = operation?.["x-lazco"] as { kind?: string } | undefined;
+      if (operation && annotation?.kind === "spend") {
+        routes.push({
+          method: method.toUpperCase(),
+          pattern: new RegExp(`^${path.replace(/\{[^}]+\}/g, "[^/]+")}$`),
+          operationId: operation.operationId as string,
+        });
+      }
+    }
+  }
+  return routes;
+}
 
 /**
  * A fake API that serves the `spend` fixture, the phase C spec's spend and
- * quote operations, answers every `.../quote` with `state.quote`, and every
- * spend route above with a fixed body.
+ * quote operations. It answers every `.../quote` with `state.quote`, and
+ * every spend operation of the spec: `compute.servers.create` with the 202
+ * of a task, as the API does, and every other one with `{ spent: <operationId> }`.
  */
 export function spendApi(state: SpendState): FakeApi {
-  const spec = loadFixture("spend");
+  const fixture = loadFixture("spend");
   return new FakeApi((request) => {
+    const spec = state.spec ?? fixture;
     const route = `${request.method} ${request.path}`;
     if (route === "GET /v1/spec") {
-      return json(200, spec, { etag: '"spend"' });
+      return json(200, spec, { etag: state.spec ? '"spend-changed"' : '"spend"' });
     }
     if (route === "GET /v1/whoami") {
       return json(200, {
@@ -49,11 +67,18 @@ export function spendApi(state: SpendState): FakeApi {
       const stored = state.storedQuote === undefined ? state.quote : state.storedQuote;
       return stored === null
         ? json(404, { error: "Not found", code: "QUOTE_NOT_FOUND" })
-        : json(200, { ...stored, status: "open" });
+        : json(200, { status: "open", ...stored });
     }
-    const body = SPEND_ROUTES.get(route);
-    if (body) {
-      return state.spendAnswer ? state.spendAnswer(request) : json(200, body());
+    const spend = spendRoutes(spec).find(
+      (candidate) => candidate.method === request.method && candidate.pattern.test(request.path),
+    );
+    if (spend) {
+      if (state.spendAnswer) {
+        return state.spendAnswer(request);
+      }
+      return spend.operationId === "compute.servers.create"
+        ? json(202, { taskId: "t-1", serverId: "srv-9" })
+        : json(200, { spent: spend.operationId });
     }
     return json(404, { error: "Not found", code: "NOT_FOUND" });
   });
