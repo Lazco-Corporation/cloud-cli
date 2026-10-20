@@ -135,6 +135,20 @@ describe("lazco mcp on stdio", () => {
     expect(instructions).not.toContain("read only");
   });
 
+  test("--allow-spend is a flag of lazco mcp, and the instructions say whether spend tools are offered", async () => {
+    const { client } = await connect(["--allow-writes", "--allow-spend"]);
+    const instructions = client.getInstructions() ?? "";
+    expect(instructions).toContain("Spend tools take money from the account balance");
+    expect(instructions).not.toContain("No spend tool is offered");
+  });
+
+  test("without --allow-spend the instructions say how to add the spend tools", async () => {
+    const { client } = await connect(["--allow-writes"]);
+    expect(client.getInstructions()).toContain(
+      "No spend tool is offered, because it was started without --allow-spend",
+    );
+  });
+
   test("the User-Agent names mcp at startup and the client after initialize", async () => {
     const { client } = await connect();
     const startup = api.requests.map((request) => request.headers["user-agent"]);

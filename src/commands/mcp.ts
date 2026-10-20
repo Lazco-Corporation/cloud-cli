@@ -17,7 +17,7 @@ const serve: HandwrittenCommand = {
   command: ["mcp"],
   summary: "Serve the API's operations as MCP tools on stdio",
   description:
-    "A local MCP server for an MCP client to start. It uses the credential of this run, as every command does, and refreshes an SSO sign-in as it goes. Without --allow-writes it offers read tools only. With it, write tools and the destructive tools that need a confirmation are added, unless the token's scope is read. Nothing but MCP is written to stdout.",
+    "A local MCP server for an MCP client to start. It uses the credential of this run, as every command does, and refreshes an SSO sign-in as it goes. Without --allow-writes it offers read tools only. With it, write tools and the destructive tools that need a confirmation are added, unless the token's scope is read. With --allow-spend too, the tools that spend from the account balance are added, each with its quote tool. Nothing but MCP is written to stdout.",
   kind: "read",
   positionals: [],
   inputSchema: {
@@ -26,6 +26,11 @@ const serve: HandwrittenCommand = {
       allowWrites: {
         type: "boolean",
         description: "Add the write tools, and the destructive tools that need a confirmation",
+      },
+      allowSpend: {
+        type: "boolean",
+        description:
+          "With --allow-writes, add the tools that spend from the account balance, each with its quote tool",
       },
     },
     additionalProperties: false,
@@ -40,6 +45,7 @@ const serve: HandwrittenCommand = {
     const mcp = await McpSession.start({
       version: context.version,
       allowWrites: input.allowWrites === true,
+      allowSpend: input.allowSpend === true,
       secrets: () => credential.secrets(),
       client: context.client(session.apiUrl, credential, userAgent),
       specSource: new SpecSource({
@@ -72,7 +78,7 @@ const install: HandwrittenCommand = {
   command: ["mcp", "install"],
   summary: "Add lazco to an MCP client's configuration",
   description:
-    "Adds or replaces the server entry lazco in the user-level configuration of one client. The entry holds the command and its arguments only, never a credential: the server reads the credential of its profile when the client starts it. --profile, --api-url and --allow-writes are written into the entry's arguments. --dry-run prints the entry and the file and changes nothing.",
+    "Adds or replaces the server entry lazco in the user-level configuration of one client. The entry holds the command and its arguments only, never a credential: the server reads the credential of its profile when the client starts it. --profile, --api-url, --allow-writes and --allow-spend are written into the entry's arguments. --dry-run prints the entry and the file and changes nothing.",
   kind: "write",
   positionals: [],
   inputSchema: {
@@ -83,6 +89,10 @@ const install: HandwrittenCommand = {
       allowWrites: {
         type: "boolean",
         description: "Start the server with --allow-writes",
+      },
+      allowSpend: {
+        type: "boolean",
+        description: "Start the server with --allow-spend",
       },
     },
     additionalProperties: false,
@@ -105,6 +115,9 @@ const install: HandwrittenCommand = {
     }
     if (input.allowWrites === true) {
       serverArgs.push("--allow-writes");
+    }
+    if (input.allowSpend === true) {
+      serverArgs.push("--allow-spend");
     }
     const launcher = await resolveLauncher({
       paths: context.paths,

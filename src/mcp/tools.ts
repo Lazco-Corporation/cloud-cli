@@ -1,5 +1,10 @@
 import { KNOWN_UPLOADERS } from "../core/generate/annotation";
-import type { Operation } from "../core/generate/operations";
+import {
+  EXPECTED_AMOUNT_INPUT,
+  type Operation,
+  QUOTE_ID_INPUT,
+  QUOTE_INPUTS,
+} from "../core/generate/operations";
 import type { JsonSchema } from "../core/spec/types";
 
 /** The sentence every session's instructions carry, as `cli-mcp` requires. */
@@ -37,6 +42,8 @@ export type ToolSet = {
   hiddenFeatures: readonly string[];
   /** Why the session cannot write, or `null` when it can. */
   readOnlyReason: string | null;
+  /** Why the session offers no spend tool, or `null` when it offers them. */
+  noSpendReason: string | null;
 };
 
 /** The operation that reads a task, whose tool an async tool's result names. */
@@ -57,6 +64,11 @@ function annotationsOf(operation: Operation): ToolAnnotations {
       idempotentHint: operation.method === "put",
     };
   }
+  // Money that leaves the account balance does not come back by another call,
+  // and a second call with the same quote fails instead of answering the same.
+  if (operation.kind === "spend") {
+    return { title, readOnlyHint: false, destructiveHint: true, idempotentHint: false };
+  }
   return {
     title,
     readOnlyHint: false,
@@ -65,21 +77,32 @@ function annotationsOf(operation: Operation): ToolAnnotations {
   };
 }
 
-/** The input schema of a tool: the operation's, with the `confirm` field required. */
+/**
+ * The input schema of a tool: the operation's, with the `confirm` field
+ * required, and `quoteId` and `expectedAmount` required for a spend tool.
+ */
 function toolSchema(operation: Operation): JsonSchema {
-  const confirm = operation.annotation.confirm;
   const schema: JsonSchema = { ...operation.inputSchema, type: "object" };
-  if (confirm !== undefined) {
-    const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
-    if (!required.includes(confirm)) {
-      schema.required = [...required, confirm];
-    }
+  const needed = [
+    ...(operation.annotation.confirm === undefined ? [] : [operation.annotation.confirm]),
+    ...(operation.kind === "spend" ? QUOTE_INPUTS : []),
+  ];
+  const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+  const missing = needed.filter((name) => !required.includes(name));
+  if (missing.length > 0) {
+    schema.required = [...required, ...missing];
   }
   return schema;
 }
 
 function describeTool(operation: Operation, taskTool: string | undefined): string {
   const lines = [operation.description || operation.summary];
+  if (operation.kind === "spend" && operation.quote?.toolName) {
+    lines.push(
+      `Spends from the account balance. First call ${operation.quote.toolName} with the same inputs, show its quote to the user (the amount, each line, the period and the recurring charge), and get a yes. Then call this tool with the same inputs, the quote's ${QUOTE_ID_INPUT}, and the quote's amount unchanged as ${EXPECTED_AMOUNT_INPUT}.`,
+      `A quote is good for 10 minutes and for one spend. After a QUOTE_ error, get a new quote and ask the user again before you spend.`,
+    );
+  }
   if (operation.annotation.confirm !== undefined) {
     lines.push(
       `Set "${operation.annotation.confirm}" to the resource's own name, read from the resource first, to confirm.`,
@@ -113,48 +136,77 @@ function describeTool(operation: Operation, taskTool: string | undefined): strin
 /** The `whoami` scopes that may write: an API token's `read_write`, and a product session's `full`. */
 const WRITE_SCOPES: ReadonlySet<string> = new Set(["read_write", "full"]);
 
+function hiddenFeature(operation: Operation, facts: SessionFacts): string | undefined {
+  return operation.feature !== null && facts.features[operation.feature] === false
+    ? operation.feature
+    : undefined;
+}
+
 /**
  * The tools of a session by the tiers of `cli-mcp`: `read` always, `write`
  * and `destructive` with `--allow-writes` on a token that can write, a
- * `destructive` one only with `confirm`, never `spend`, and none whose
- * feature is off.
+ * `destructive` one only with `confirm`, a `spend` one only with
+ * `--allow-spend` too and together with its quote tool, a quote tool never
+ * alone, and none whose feature is off.
  */
 export function selectTools(
   operations: readonly Operation[],
-  options: { allowWrites: boolean; facts: SessionFacts },
+  options: { allowWrites: boolean; allowSpend: boolean; facts: SessionFacts },
 ): ToolSet {
   // An allow-list, so a scope this version does not know offers no write tool.
   const readOnlyScope = !WRITE_SCOPES.has(options.facts.scope);
   const writes = options.allowWrites && !readOnlyScope;
+  const spends = writes && options.allowSpend;
   const hidden = new Set<string>();
   const taskTool = operations.find(
     (operation) =>
       operation.toolName !== null && operation.kind === "read" && isTaskReader(operation),
   )?.toolName;
   const tools: ToolEntry[] = [];
+  const add = (operation: Operation): void => {
+    if (tools.some((tool) => tool.name === operation.toolName)) {
+      return;
+    }
+    tools.push({
+      name: operation.toolName as string,
+      title: operation.summary || (operation.toolName as string),
+      description: describeTool(operation, taskTool ?? undefined),
+      inputSchema: toolSchema(operation),
+      annotations: annotationsOf(operation),
+      operation,
+    });
+  };
   for (const operation of operations) {
-    if (operation.toolName === null) {
+    // A quote tool registers with its spend tool, below, and never on its own.
+    if (operation.toolName === null || operation.isQuote) {
       continue;
     }
-    if (operation.feature !== null && options.facts.features[operation.feature] === false) {
-      hidden.add(operation.feature);
+    const feature = hiddenFeature(operation, options.facts);
+    if (feature !== undefined) {
+      hidden.add(feature);
+      continue;
+    }
+    if (operation.kind === "spend") {
+      const quote = operation.quote;
+      if (!spends || quote === null || quote.toolName === null) {
+        continue;
+      }
+      const quoteFeature = hiddenFeature(quote, options.facts);
+      if (quoteFeature !== undefined) {
+        hidden.add(quoteFeature);
+        continue;
+      }
+      add(operation);
+      add(quote);
       continue;
     }
     const allowed =
       operation.kind === "read" ||
       (operation.kind === "write" && writes) ||
       (operation.kind === "destructive" && writes && operation.annotation.confirm !== undefined);
-    if (!allowed) {
-      continue;
+    if (allowed) {
+      add(operation);
     }
-    tools.push({
-      name: operation.toolName,
-      title: operation.summary || operation.toolName,
-      description: describeTool(operation, taskTool ?? undefined),
-      inputSchema: toolSchema(operation),
-      annotations: annotationsOf(operation),
-      operation,
-    });
   }
   tools.sort((left, right) => left.name.localeCompare(right.name));
   return {
@@ -165,6 +217,11 @@ export function selectTools(
       : options.allowWrites
         ? null
         : "it was started without --allow-writes. Start lazco mcp with --allow-writes to add the write tools",
+    noSpendReason: spends
+      ? null
+      : options.allowSpend
+        ? "spending needs a session that can write, with --allow-writes too"
+        : "it was started without --allow-spend. Start lazco mcp with --allow-writes --allow-spend to add the spend tools and their quote tools",
   };
 }
 
@@ -197,6 +254,11 @@ export function sessionInstructions(set: ToolSet, facts: SessionFacts): string {
       ? "This session can write: write tools and destructive tools that need a confirmation are offered."
       : `This session is read only, because ${set.readOnlyReason}.`,
   ];
+  lines.push(
+    set.noSpendReason === null
+      ? "Spend tools take money from the account balance. Before each spend tool, call its quote tool, show the quote to the user, and get a yes. A quote is good for 10 minutes and for one spend."
+      : `No spend tool is offered, because ${set.noSpendReason}.`,
+  );
   if (set.hiddenFeatures.length > 0) {
     lines.push(
       `These features are off for the organization, so their tools are hidden: ${set.hiddenFeatures.join(", ")}.`,

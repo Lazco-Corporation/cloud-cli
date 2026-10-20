@@ -1,6 +1,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  ElicitRequestSchema,
+  type ElicitResult,
+  ToolListChangedNotificationSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { createAjv } from "../../src/core/request/ajv";
 import { ApiClient } from "../../src/core/request/client";
 import { type Clock, SYSTEM_CLOCK } from "../../src/core/request/clock";
@@ -45,13 +49,24 @@ export type ConnectedSession = {
   scheduler: ReturnType<typeof manualScheduler>;
   warnings: string[];
   listChanged: number;
+  /** The message of every `elicitation/create` the client got. */
+  elicitations: string[];
   close(): Promise<void>;
 };
+
+/** How the test client answers `elicitation/create`, which it declares only when given. */
+export type ElicitationAnswer = (message: string) => ElicitResult | Promise<ElicitResult>;
 
 /** Starts a session against a fake API and connects an SDK client to it in memory. */
 export async function connectSession(
   api: Pick<FakeApi, "apiUrl">,
-  options: { allowWrites?: boolean; cacheDirectory: string; clock?: Clock },
+  options: {
+    allowWrites?: boolean;
+    allowSpend?: boolean;
+    cacheDirectory: string;
+    clock?: Clock;
+    elicitation?: ElicitationAnswer;
+  },
 ): Promise<ConnectedSession> {
   const limiter = new RateLimiter(SYSTEM_CLOCK);
   const ajv = createAjv();
@@ -60,6 +75,7 @@ export async function connectSession(
   const session = await McpSession.start({
     version: "0.0.0",
     allowWrites: options.allowWrites === true,
+    allowSpend: options.allowSpend === true,
     secrets: () => [FAKE_TOKEN],
     client: new ApiClient({
       apiUrl: api.apiUrl,
@@ -80,13 +96,18 @@ export async function connectSession(
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await session.connect(serverTransport);
-  const client = new Client({ name: "test-client", version: "1.2.3" });
+  const elicitation = options.elicitation;
+  const client = new Client(
+    { name: "test-client", version: "1.2.3" },
+    elicitation === undefined ? {} : { capabilities: { elicitation: {} } },
+  );
   const connected: ConnectedSession = {
     session,
     client,
     scheduler,
     warnings,
     listChanged: 0,
+    elicitations: [],
     close: async () => {
       await client.close();
     },
@@ -94,6 +115,12 @@ export async function connectSession(
   client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
     connected.listChanged += 1;
   });
+  if (elicitation !== undefined) {
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      connected.elicitations.push(request.params.message);
+      return elicitation(request.params.message);
+    });
+  }
   await client.connect(clientTransport);
   return connected;
 }
