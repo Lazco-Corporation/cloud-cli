@@ -57,8 +57,9 @@ The `contract` job runs one at a time, because every run writes to the same orga
 
 ## The MCP evaluation set
 
-`eval/mcp/tasks.yaml` holds 44 tasks in natural language against the contract organization.
+`eval/mcp/tasks.yaml` holds 48 tasks in natural language against the contract organization.
 Each has the tier it needs, the tools a good run calls, and a CLI command whose output proves the answer.
+A task may also name the tools a good run never calls, and later user messages, such as a yes or a no to a quote, each graded on its own turn.
 `eval/mcp/run.ts` runs them through `pi` and grades each one.
 
 The Pages tasks deploy to an active Pages site of the contract organization, named `cli-eval` unless `--pages-site <name>` names another.
@@ -68,9 +69,15 @@ The Pages tasks deploy to an active Pages site of the contract organization, nam
 3. Run `lazco mcp install --client pi --profile staging`.
 4. Run `bun run build`, then `bun eval/mcp/run.ts --tier read`.
 5. Run `lazco mcp install --client pi --profile staging --allow-writes`, then `bun eval/mcp/run.ts --tier write`.
-6. Put the copy of `~/.pi/agent/mcp.json` back.
+6. Run `lazco mcp install --client pi --profile staging --allow-writes --allow-spend`, then `bun eval/mcp/run.ts --tier spend`.
+7. Put the copy of `~/.pi/agent/mcp.json` back.
+
+The `spend` tasks run one at a time, because they share one account balance and one list of packs.
+They quote a Pages pack and answer no, quote one and answer yes, and ask for a bandwidth add-on of a server that does not exist.
+The yes buys one pack, so a `spend` run costs one pack month, and the runner deletes every pack that still renews after each pack task.
+`pi -p` declares no elicitation, so these tasks grade the model: it must quote, show the amount and ask, and spend only after a yes.
 
 The runner prints a JSON summary with the pass list and each failure.
-The bar is 40 of 44.
+The bar is 40 of the 45 `read` and `write` tasks, and every `spend` task, because a failed `spend` task may have spent money nobody agreed to.
 The results go into the pull request, never into the repo, because they depend on the model and the day.
 A weak result is usually a weak `summary` or `description` in the spec, and the fix belongs in `cloud-backend`.

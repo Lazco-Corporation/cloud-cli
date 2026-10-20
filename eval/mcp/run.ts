@@ -6,9 +6,10 @@
  *
  * Before a run, `lazco mcp install --client pi --profile <profile>` must have
  * written the `lazco` entry of `~/.pi/agent/mcp.json`, with `--allow-writes`
- * for the `write` tier. The proofs, setups and cleanups run the built CLI
- * (`bun run build`) with the same profile. The summary goes to stdout as JSON.
- * A Pages task needs an active Pages site of that name in the organization.
+ * for the `write` tier, and `--allow-writes --allow-spend` for the `spend`
+ * tier. The proofs, setups and cleanups run the built CLI (`bun run build`)
+ * with the same profile. The summary goes to stdout as JSON. A Pages task
+ * needs an active Pages site of that name in the organization.
  */
 import { generateKeyPairSync } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -17,15 +18,18 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 type Expression = string;
-type Task = {
+/** What one turn of a task must do: the tools it calls, the tools it never calls, and its answer. */
+type Turn = { tools?: string[]; never?: string[]; answer?: string[] };
+type Reply = Turn & { prompt: string };
+type Task = Turn & {
   id: string;
-  tier: "read" | "write";
+  tier: "read" | "write" | "spend";
   prompt: string;
   tools: string[];
+  replies?: Reply[];
   proof?: { command: string[]; expect?: Expression; check?: Expression; list?: boolean };
-  answer?: string[];
   setup?: { createSshKey?: string; createProject?: string; writeSite?: boolean };
-  cleanup?: { sshKeysNamed?: string[]; projectsNamed?: string[] };
+  cleanup?: { sshKeysNamed?: string[]; projectsNamed?: string[]; livePacks?: boolean };
 };
 
 const { values } = parseArgs({
@@ -39,9 +43,14 @@ const { values } = parseArgs({
     "pages-site": { type: "string", default: "cli-eval" },
   },
 });
-if (values.tier !== "read" && values.tier !== "write") {
-  throw new Error("--tier must be read or write");
+if (values.tier !== "read" && values.tier !== "write" && values.tier !== "spend") {
+  throw new Error("--tier must be read, write or spend");
 }
+// Spend tasks share one account balance and one list of packs, so one task's
+// purchase would show in another's proof: they run one at a time.
+const concurrency = values.tier === "spend" ? 1 : Number(values.concurrency);
+/** The pack statuses that still renew, so a delete is due. */
+const RENEWING_PACK: ReadonlySet<string> = new Set(["active", "renewal_grace", "suspended"]);
 
 const ROOT = join(import.meta.dir, "..", "..");
 const CLI = join(ROOT, "dist", "cli.js");
@@ -143,33 +152,82 @@ async function cleanup(task: Task): Promise<void> {
   for (const id of await namedIds(["projects", "list"], task.cleanup?.projectsNamed ?? [])) {
     await lazco(["projects", "delete", id, "--yes"]);
   }
+  if (task.cleanup?.livePacks) {
+    // A pack renews every month until it is deleted, and a delete refunds nothing.
+    const run = await lazco(["labs", "pages", "entitlement", "get"]);
+    const out = output(["labs", "pages", "entitlement", "get"], run.stdout) as {
+      packs?: Array<{ id: string; status: string }>;
+    };
+    for (const pack of out?.packs ?? []) {
+      if (RENEWING_PACK.has(pack.status)) {
+        await lazco(["labs", "pages", "packs", "delete", pack.id, "--yes"]);
+      }
+    }
+  }
 }
 
-/** The tool calls and the last text of a `pi --mode json` transcript. */
-function readTranscript(text: string): { calls: string[]; answer: string } {
-  const calls: string[] = [];
-  let answer = "";
+/**
+ * The tool calls and the last text of each turn of a `pi --mode json`
+ * transcript. A turn starts at a user message and holds what the agent did
+ * before the next one.
+ */
+function readTranscript(text: string): Array<{ calls: string[]; answer: string }> {
+  const turns: Array<{ calls: string[]; answer: string }> = [];
   for (const line of text.split("\n")) {
     let event: {
       type?: string;
-      message?: { role?: string; content?: Array<Record<string, string>> };
+      message?: { role?: string; content?: Array<Record<string, string>> | string };
     };
     try {
       event = JSON.parse(line);
     } catch {
       continue;
     }
-    if (event.type !== "message_end" || event.message?.role !== "assistant") continue;
-    for (const content of event.message.content ?? []) {
-      if (content.type === "toolCall" && content.name) {
-        calls.push(content.name.replace(/^(mcp__lazco__|lazco_)/, ""));
+    if (event.type !== "message_end") continue;
+    if (event.message?.role === "user") {
+      turns.push({ calls: [], answer: "" });
+      continue;
+    }
+    const turn = turns.at(-1);
+    const content = event.message?.content;
+    if (event.message?.role !== "assistant" || turn === undefined || !Array.isArray(content)) {
+      continue;
+    }
+    for (const part of content) {
+      if (part.type === "toolCall" && part.name) {
+        turn.calls.push(part.name.replace(/^(mcp__lazco__|lazco_)/, ""));
       }
-      if (content.type === "text" && content.text) {
-        answer = content.text;
+      if (part.type === "text" && part.text) {
+        turn.answer = part.text;
       }
     }
   }
-  return { calls, answer };
+  return turns;
+}
+
+/** The problems of one turn against what it must do. */
+function gradeTurn(
+  expected: Turn,
+  turn: { calls: string[]; answer: string } | undefined,
+  label: string,
+): string[] {
+  if (turn === undefined) {
+    return [`${label}: the agent never reached it`];
+  }
+  const problems: string[] = [];
+  const tools = expected.tools ?? [];
+  if (tools.length > 0 && !tools.some((tool) => turn.calls.includes(tool))) {
+    problems.push(`${label}: called none of ${tools.join(", ")}`);
+  }
+  for (const tool of expected.never ?? []) {
+    if (turn.calls.includes(tool)) problems.push(`${label}: called ${tool}`);
+  }
+  for (const pattern of expected.answer ?? []) {
+    if (!new RegExp(pattern, "i").test(turn.answer)) {
+      problems.push(`${label}: answer does not match /${pattern}/`);
+    }
+  }
+  return problems;
 }
 
 function contains(answer: string, expected: unknown): boolean {
@@ -220,6 +278,8 @@ async function runTask(task: Task, index: number) {
       const made = await lazco(["projects", "create", "--name", filled.setup.createProject]);
       if (made.code !== 0) problems.push(`setup failed: ${made.stderr.trim()}`);
     }
+    const replies = filled.replies ?? [];
+    // Each reply is one more user message in the same session, sent after the agent answers.
     const agent = Bun.spawn(
       [
         "pi",
@@ -235,22 +295,27 @@ async function runTask(task: Task, index: number) {
         values.model as string,
         "--thinking",
         values.thinking as string,
+        "--",
         filled.prompt,
+        ...replies.map((reply) => reply.prompt),
       ],
       { cwd: workdir, stdout: "pipe", stderr: "pipe", stdin: "ignore" },
     );
-    const timer = setTimeout(() => agent.kill(), 300_000);
+    const timer = setTimeout(() => agent.kill(), 300_000 * (1 + replies.length));
     const transcript = await new Response(agent.stdout).text();
     const exitCode = await agent.exited;
     clearTimeout(timer);
     if (exitCode !== 0) problems.push(`pi exited with ${exitCode}`);
-    const { calls, answer } = readTranscript(transcript);
-    if (filled.tools.length > 0 && !filled.tools.some((tool) => calls.includes(tool))) {
-      problems.push(`called none of ${filled.tools.join(", ")}`);
-    }
-    for (const pattern of filled.answer ?? []) {
-      if (!new RegExp(pattern, "i").test(answer))
-        problems.push(`answer does not match /${pattern}/`);
+    const turns = readTranscript(transcript);
+    const calls = turns.flatMap((turn) => turn.calls);
+    const answer = turns.at(-1)?.answer ?? "";
+    if (replies.length === 0) {
+      problems.push(...gradeTurn(filled, { calls, answer }, "run"));
+    } else {
+      problems.push(...gradeTurn(filled, turns[0], "prompt"));
+      replies.forEach((reply, index) => {
+        problems.push(...gradeTurn(reply, turns[index + 1], `reply ${index + 1}`));
+      });
     }
     if (filled.proof) {
       const proof = await lazco(filled.proof.command);
@@ -274,10 +339,14 @@ async function runTask(task: Task, index: number) {
       calls,
       problems,
       answer: answer.slice(0, 400),
+      turns:
+        replies.length === 0
+          ? undefined
+          : turns.map((turn) => ({ calls: turn.calls, answer: turn.answer.slice(0, 400) })),
     };
   } catch (error) {
     problems.push(`the runner failed: ${error instanceof Error ? error.message : String(error)}`);
-    return { id: task.id, pass: false, calls: [], problems, answer: "" };
+    return { id: task.id, pass: false, calls: [], problems, answer: "", turns: undefined };
   } finally {
     await cleanup(filled);
     await rm(workdir, { recursive: true, force: true });
@@ -287,7 +356,7 @@ async function runTask(task: Task, index: number) {
 const results: Awaited<ReturnType<typeof runTask>>[] = [];
 const queue = tasks.map((task, index) => ({ task, index }));
 await Promise.all(
-  Array.from({ length: Number(values.concurrency) }, async () => {
+  Array.from({ length: concurrency }, async () => {
     for (let next = queue.shift(); next; next = queue.shift()) {
       const result = await runTask(next.task, next.index);
       console.error(`${result.pass ? "PASS" : "FAIL"} ${result.id} ${result.problems.join("; ")}`);
