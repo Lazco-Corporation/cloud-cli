@@ -94,8 +94,8 @@ The CLI needs `quoteId` and an `amount` of at most 3 decimals, and fails with `C
 
 An MCP spend tool takes `quoteId` and `expectedAmount` as required inputs, and its quote tool takes the rest.
 Both register only with `--allow-writes --allow-spend`, and a quote tool never registers without its spend tool.
-With elicitation, a spend tool reads the quote back and asks only when its `operationId` is the tool's operation, its `status` is `open`, and its `amount` equals `expectedAmount`.
-Any other quote is `CLI_INVALID_INPUT`, with no question and no spend.
+With elicitation, a spend tool reads the quote back and asks only when its `operationId` is the tool's operation, its `status` is `open`, and its `amount` is the same decimal value as `expectedAmount`, so `402.5` matches `402.500`.
+Any other quote is `CLI_INVALID_INPUT`, and a quote answer without a `quoteId` or with an `amount` of more than 3 decimals is `CLI_BAD_RESPONSE`, both with no question and no spend.
 The question waits until the quote expires, for 60 seconds at least and 10 minutes at most.
 
 ## Idempotency-Key

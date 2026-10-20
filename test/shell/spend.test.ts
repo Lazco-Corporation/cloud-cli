@@ -205,6 +205,15 @@ describe("a spend command quotes, asks, and then spends", () => {
     expect(spendRequests()).toEqual([]);
   });
 
+  test("a recurring charge without its interval says so, never undefined", async () => {
+    state.quote = upgradeQuote({ recurring: { amount: "250.000", startsAt: "2026-11-01" } });
+    const result = await run(UPGRADE);
+    expect(result.stderr).toContain(
+      "then NT$250 at an interval the API did not send, from 2026-11-01",
+    );
+    expect(result.stderr).not.toContain("undefined");
+  });
+
   test("the key notice quotes a quote id a shell would split", async () => {
     state.quote = upgradeQuote({ quoteId: "q 'x" });
     state.spendAnswer = () => new Response("<html>502</html>", { status: 502 });
