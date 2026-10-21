@@ -8,10 +8,11 @@ export const LOOPBACK_TIMEOUT_MS = 10 * 60 * 1000;
 export const CALLBACK_PATH = "/callback";
 
 /*
- * The colours, sizes and shadow are copied by hand from `dist/tokens.css` of
- * `@lazco-corporation/design-system`, and the font stack from its
- * `dist/email.json`. The CLI does not depend on the package for one page, and
- * the page loads no font file, so it uses the system faces the email stack names.
+ * The colours, sizes and shadow are copied by hand from the dark theme in
+ * `dist/tokens.css` of `@lazco-corporation/design-system`, and the font stack
+ * from its `dist/email.json`. The CLI does not depend on the package for one
+ * page, and the page loads no font file, so it uses the system faces the email
+ * stack names.
  * The answer can be a denied sign-in, so the page shows no success state.
  */
 const DONE_PAGE = `<!doctype html>
@@ -19,11 +20,10 @@ const DONE_PAGE = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark">
 <title>Lazco CLI</title>
 <style>
-:root{--ground:#f5f7f9;--panel:#ffffff;--ink:#14171a;--ink-2:#434c56;--faint:#636b75;--line:rgba(15,20,28,.09);--brand-fill:#40b7f3;--shadow-2:0 0 0 1px rgba(15,20,28,.06),0 1px 1px -.5px rgba(15,20,28,.06)}
-@media (prefers-color-scheme:dark){:root{--ground:#08090a;--panel:#101112;--ink:#e8eaec;--ink-2:#c3c8cc;--faint:#858c92;--line:rgba(255,255,255,.07);--shadow-2:inset 0 1px 0 0 rgba(255,255,255,.03),inset 0 0 0 1px rgba(255,255,255,.05),0 1px 1px -.5px rgba(0,0,0,.18)}}
+:root{--ground:#08090a;--panel:#101112;--ink:#e8eaec;--ink-2:#c3c8cc;--faint:#858c92;--line:rgba(255,255,255,.07);--brand-fill:#40b7f3;--shadow-2:inset 0 1px 0 0 rgba(255,255,255,.03),inset 0 0 0 1px rgba(255,255,255,.05),0 1px 1px -.5px rgba(0,0,0,.18)}
 *{box-sizing:border-box}
 html,body{margin:0}
 body{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--ground);color:var(--ink-2);font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
