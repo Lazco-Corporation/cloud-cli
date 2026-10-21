@@ -39,6 +39,7 @@ describe("skips", () => {
   const expected: Record<(typeof FIXTURE_NAMES)[number], Array<[string, SkipReason]>> = {
     surface: [],
     pages: [],
+    artifacts: [],
     spend: [],
     skips: [
       ["teleports.create", "invalid-annotation"],

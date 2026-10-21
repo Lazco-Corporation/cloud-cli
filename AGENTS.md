@@ -46,7 +46,7 @@ The pre-push hook runs gitleaks, the check, the type check and the unit tests.
 | `src/shell/` | Global flags, output, `--describe`, `--dry-run`, confirmation and feature hiding |
 | `src/commands/` | The hand-written commands: `auth`, `profile`, `mcp` and `mcp install` |
 | `src/mcp/` | The stdio MCP server, its tiers, and the client config writers |
-| `src/uploads/` | The uploaders, hand-written behavior for an operation whose `x-lazco` names one: the Pages deploy |
+| `src/uploads/` | The uploaders, hand-written behavior for an operation whose `x-lazco` names one: the Pages deploy and the artifact publish |
 | `src/config/` | Paths, the config file and its Zod schema |
 | `src/credentials/` | The keychain store, the file store, the credential order, the SSO credential with its refresh, and the profile lock |
 | `src/sso/` | The SSO sign-in: discovery, the loopback and device flows, the OAuth requests, and revocation |

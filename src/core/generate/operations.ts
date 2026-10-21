@@ -39,13 +39,14 @@ export type IdempotencyKeyUse = "required" | "optional";
  * How the input object maps onto the body. `merged`: every input property that
  * is not a parameter is a body property. `wrapped`: the input property `body`
  * is the whole body. `none`: the operation takes no body. `upload`: the
- * uploader of that name takes the input and builds the body itself.
+ * uploader of that name takes the input and builds the body itself, with the
+ * input properties of `bodyInputs` sent as given.
  */
 export type BodyMapping =
   | { mode: "none" }
   | { mode: "merged"; required: boolean }
   | { mode: "wrapped"; required: boolean }
-  | { mode: "upload"; uploader: string };
+  | { mode: "upload"; uploader: string; bodyInputs: readonly string[] };
 
 export type Operation = {
   operationId: string;
@@ -367,7 +368,14 @@ function buildOperation(
   const body =
     uploader === undefined
       ? mergeBody(document, source, properties, required)
-      : addUploaderInput(annotation.upload as string, uploader, properties, required);
+      : addUploaderInput(
+          document,
+          source,
+          annotation.upload as string,
+          uploader,
+          properties,
+          required,
+        );
   let resolved: ReturnType<typeof resolveReferences>;
   try {
     resolved = resolveReferences(document, {
@@ -453,14 +461,37 @@ function withoutQuoteInputs(
 
 /**
  * Puts an uploader's input in place of the body: the uploader builds the body
- * from it, so the body's own schema is never an input.
+ * from it, so the body's own schema is never an input. An uploader that
+ * `fills` some body properties keeps every top-level body property as an
+ * input instead, and only those it fills lose their `required`.
  */
 function addUploaderInput(
+  document: OpenApiDocument,
+  source: OpenApiOperation,
   name: string,
   uploader: UploaderInput,
   properties: Record<string, JsonSchema>,
   required: string[],
 ): { mapping: BodyMapping; additionalProperties: unknown } {
+  const bodyInputs: string[] = [];
+  if (uploader.fills !== undefined) {
+    const before = new Set(Object.keys(properties));
+    const merged = mergeBody(document, source, properties, required);
+    bodyInputs.push(...Object.keys(properties).filter((property) => !before.has(property)));
+    const missing = uploader.fills.filter((property) => !bodyInputs.includes(property));
+    if (merged.mapping.mode !== "merged" || missing.length > 0) {
+      throw new SkipError(
+        "unsupported-body",
+        `the uploader "${name}" needs a JSON object body with ${uploader.fills.join(", ")}`,
+      );
+    }
+    for (const property of uploader.fills) {
+      const index = required.indexOf(property);
+      if (index !== -1) {
+        required.splice(index, 1);
+      }
+    }
+  }
   for (const [property, schema] of Object.entries(uploader.properties)) {
     if (Object.hasOwn(properties, property)) {
       throw new SkipError(
@@ -471,7 +502,7 @@ function addUploaderInput(
     properties[property] = { ...schema };
   }
   required.push(...uploader.required);
-  return { mapping: { mode: "upload", uploader: name }, additionalProperties: false };
+  return { mapping: { mode: "upload", uploader: name, bodyInputs }, additionalProperties: false };
 }
 
 function collectParameters(

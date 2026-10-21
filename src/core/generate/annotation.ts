@@ -29,6 +29,13 @@ export type UploaderInput = {
   positionals: readonly string[];
   /** Sentences the MCP tool's description adds, for what the uploader does beyond one request. */
   toolNotes: readonly string[];
+  /**
+   * The body properties the uploader can build from its own input. With it,
+   * every top-level body property stays an input and is sent as given, and
+   * these lose their `required`, because the uploader fills them when the
+   * input does not. Without it, the uploader's input replaces the whole body.
+   */
+  fills?: readonly string[];
 };
 
 /** The input `directory`, which the MCP tool takes as an absolute path only. */
@@ -52,6 +59,30 @@ const PAGES_DEPLOYMENT_INPUT: UploaderInput = {
   ],
 };
 
+/** The input `path` of the artifact uploader: a local file or directory. */
+export const ARTIFACT_PATH_INPUT = "path";
+/** The body property the artifact uploader builds from `path`. */
+export const ARTIFACT_FILES_INPUT = "files";
+
+const ARTIFACT_INPUT: UploaderInput = {
+  properties: {
+    [ARTIFACT_PATH_INPUT]: {
+      type: "string",
+      minLength: 1,
+      description:
+        "The local file or directory to publish, in place of files. A directory is read with every file below it, and every file or directory whose name starts with a dot is skipped. A relative path is resolved against the working directory, and the MCP tool takes an absolute path only.",
+    },
+  },
+  required: [],
+  positionals: [ARTIFACT_PATH_INPUT],
+  toolNotes: [
+    "Publishes content that anyone with the link can open. Only publish what the user asked to publish.",
+    "Give either path, an absolute path of a local file or directory, or files, for content that is not in a file, such as one Markdown or HTML document. Never both.",
+    "The answer holds url, the permanent link, and warnings: what the page loads from outside, misses or runs, which will not work.",
+  ],
+  fills: [ARTIFACT_FILES_INPUT],
+};
+
 /**
  * The uploaders this version has, by the name an operation's `upload` gives.
  * An `upload` naming any other is skipped. `src/uploads/registry.ts` holds
@@ -59,6 +90,7 @@ const PAGES_DEPLOYMENT_INPUT: UploaderInput = {
  */
 export const KNOWN_UPLOADERS: ReadonlyMap<string, UploaderInput> = new Map([
   ["pages-deployment", PAGES_DEPLOYMENT_INPUT],
+  ["artifact", ARTIFACT_INPUT],
 ]);
 
 const COMMAND_WORD = "[a-z0-9][a-z0-9-]*";

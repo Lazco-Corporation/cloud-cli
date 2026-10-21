@@ -1,0 +1,109 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Fixture: the Artifacts routes and their uploader",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/v1/labs/artifacts": {
+      "post": {
+        "operationId": "labs.artifacts.publish",
+        "summary": "Publish an artifact",
+        "description": "Publishes HTML or Markdown with its images, CSS and fonts, and answers its permanent link.",
+        "x-lazco": {
+          "cli": "labs artifacts publish",
+          "mcp": { "name": "labs_artifacts_publish" },
+          "kind": "write",
+          "feature": "artifacts",
+          "upload": "artifact"
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ArtifactPublish" }
+            }
+          }
+        }
+      }
+    },
+    "/v1/labs/artifacts/{id}": {
+      "get": {
+        "operationId": "labs.artifacts.get",
+        "summary": "Read an artifact",
+        "x-lazco": {
+          "cli": "labs artifacts get",
+          "mcp": { "name": "labs_artifacts_get" },
+          "kind": "read",
+          "feature": "artifacts"
+        },
+        "parameters": [{ "$ref": "#/components/parameters/ArtifactId" }]
+      },
+      "put": {
+        "operationId": "labs.artifacts.update",
+        "summary": "Update an artifact",
+        "description": "Replaces the files of an artifact with a new version. The link stays.",
+        "x-lazco": {
+          "cli": "labs artifacts update",
+          "mcp": { "name": "labs_artifacts_update" },
+          "kind": "write",
+          "feature": "artifacts",
+          "upload": "artifact",
+          "concurrency": "etag"
+        },
+        "parameters": [{ "$ref": "#/components/parameters/ArtifactId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["files"],
+                "properties": {
+                  "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+                  "files": { "$ref": "#/components/schemas/ArtifactFiles" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "ArtifactId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "schemas": {
+      "ArtifactPublish": {
+        "type": "object",
+        "required": ["region", "title", "files"],
+        "properties": {
+          "region": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "projectId": { "type": "string", "minLength": 1 },
+          "files": { "$ref": "#/components/schemas/ArtifactFiles" }
+        }
+      },
+      "ArtifactFiles": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "required": ["path", "encoding", "content"],
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+            "encoding": { "enum": ["utf-8", "base64"] },
+            "content": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

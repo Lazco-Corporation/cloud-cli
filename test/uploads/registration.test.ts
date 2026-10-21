@@ -37,7 +37,11 @@ describe("the uploader pages-deployment", () => {
 
   test("the command takes the site and directory in place of the manifest body", () => {
     const operation = deployOperation();
-    expect(operation.body).toEqual({ mode: "upload", uploader: "pages-deployment" });
+    expect(operation.body).toEqual({
+      mode: "upload",
+      uploader: "pages-deployment",
+      bodyInputs: [],
+    });
     expect(operation.toolName).toBe("labs_pages_create_deployment");
     expect(operation.kind).toBe("write");
     expect(operation.feature).toBe("pages");

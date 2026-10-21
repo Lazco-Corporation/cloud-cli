@@ -1,6 +1,7 @@
 import type { Operation } from "../core/generate/operations";
 import type { ApiClient, ApiRequest } from "../core/request/client";
 import type { Clock } from "../core/request/clock";
+import { publishArtifact } from "./artifact";
 import { deployPagesSite } from "./pagesDeployment";
 
 /** What an uploader gets from the CLI command or the MCP tool that runs it. */
@@ -35,4 +36,5 @@ export type Uploader = (context: UploaderContext) => Promise<Record<string, unkn
 /** The code of each uploader in `KNOWN_UPLOADERS`, by the same name. */
 export const UPLOADERS: ReadonlyMap<string, Uploader> = new Map([
   ["pages-deployment", deployPagesSite],
+  ["artifact", publishArtifact],
 ]);

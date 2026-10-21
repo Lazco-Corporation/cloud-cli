@@ -120,6 +120,21 @@ The command checks the API's limits before it sends anything, uploads only the f
 A failed or interrupted upload cancels the deployment, so the next deploy can start at once.
 `--dry-run` reads the limits and the site, and prints the manifest it would send.
 
+### Publish a Lazco Artifact
+
+```sh
+lazco labs artifacts publish ./report.md --region <region> --title "<title>"
+lazco labs artifacts publish ./report --region <region> --title "<title>"
+lazco labs artifacts update <artifact-id> ./report
+```
+
+The path is one HTML or Markdown file, or a directory with one entry file and the images, CSS and fonts it uses.
+Anyone with the link the answer holds in `url` can open it.
+In a directory, every file or directory whose name starts with a dot is skipped, so a `.env` is never published.
+The command refuses a file type a publish may not hold, more than 100 files and more than 5 MiB before it sends anything.
+The answer's `warnings` lists what the page loads from outside, misses or runs, which will not work.
+An update reads the current version first and sends it as `If-Match`, unless `--if-match` gives it, so a change made since then fails instead of being overwritten.
+
 ## Use it from an MCP client
 
 `lazco mcp` is a local MCP server with the same sign-in, and it renews an SSO sign-in as it runs.

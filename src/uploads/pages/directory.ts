@@ -41,7 +41,7 @@ export function sitePath(
 }
 
 /** True when `inner` is below `outer`. */
-function holds(outer: string, inner: string, paths: PathFunctions): boolean {
+export function holds(outer: string, inner: string, paths: PathFunctions): boolean {
   const relative = paths.relative(outer, inner);
   return relative !== "" && relative.split(paths.sep)[0] !== ".." && !paths.isAbsolute(relative);
 }

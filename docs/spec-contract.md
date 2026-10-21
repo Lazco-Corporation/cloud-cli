@@ -124,6 +124,9 @@ An uploader is hand-written behavior on a generated command, for an operation th
 The command path, the tool name, `kind` and `feature` still come from `x-lazco`.
 
 - The uploader's input replaces the body in the input object, so `--describe`, `--json` and the tool's `inputSchema` show it and never the body.
+- An uploader that `fills` some body properties keeps every top-level body property as an input instead, and sends each one as given.
+  Only the properties it fills lose their `required`, because the uploader builds them when the input does not give them.
+  Its operation is skipped as `unsupported-body` unless the body is a JSON object that has every property it fills.
 - Its positionals follow the path parameters on the command line.
 - The tool's description gains the uploader's notes.
 - `--dry-run` runs the uploader's reads and checks, and sends no write.
@@ -143,6 +146,14 @@ An error or an interrupt before finalize cancels the deployment once, and the fi
 An interrupt before the start is `CLI_TASK_FAILED` with nothing changed, during the upload `CLI_TASK_FAILED` with the deployment cancelled, and during the wait `CLI_TIMEOUT` with the deployment going on.
 Each of these errors carries `details.interrupted`.
 A second Ctrl-C ends the process at once.
+
+`artifact` (`src/uploads/artifact.ts` and `src/uploads/artifacts/`) publishes or updates an artifact, and fills `files`:
+
+1. It takes `path`, a local file or directory, or `files` as the API takes them, and refuses both or neither.
+2. A file is sent under its own name. A directory gives every regular file below it, by its path from the directory with `/` between segments, and skips every segment that starts with `.`. It refuses a link inside the directory, a filesystem root and the home directory.
+3. `.html`, `.htm`, `.md`, `.css` and `.svg` are sent as `utf-8`, and must decode as UTF-8. The images and fonts the API takes are sent as `base64`.
+4. It refuses any other extension, more than 100 files and more than 5 MiB decoded in total with `CLI_INVALID_INPUT`, before any request. `files` from the input gets the same checks.
+5. It sends the one request through the core, so an update with no `ifMatch` reads the ETag first, as every `concurrency: etag` operation does. The answer is the API's, `warnings` included, and a progress line counts the warnings.
 
 ## Pagination
 

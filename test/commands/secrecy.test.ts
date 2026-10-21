@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeConfig } from "../../src/config/configFile";
+import { ArtifactsApi } from "../helpers/artifactsApi";
 import { type CliRun, cliEnv, FAKE_TOKEN, makeHome, runInProcess } from "../helpers/cli";
 import { FakeApi, fakeClock, json } from "../helpers/fakeApi";
 import { fixtureApi } from "../helpers/fixtureApi";
@@ -378,6 +379,63 @@ describe("no credential is shown by the MCP deploy tool", () => {
       await session.close();
       api.stop();
       await pagesHome.cleanup();
+    }
+  });
+});
+
+describe("no credential is shown by an artifact publish or update", () => {
+  test("a publish, a dry run, the tool, and every error path that echoes the credential", async () => {
+    const artifactHome = await makeHome();
+    const report = join(artifactHome.home, "report");
+    await mkdir(report, { recursive: true });
+    await writeFile(join(report, "index.md"), "# Report");
+    const api = new ArtifactsApi();
+    const echo = (sent: string) =>
+      json(400, { error: `rejected ${sent}`, code: "ECHO", details: `the header was ${sent}` });
+    const runs: CliRun[] = [];
+    const lazco = async (...args: string[]) => {
+      const result = await runInProcess(["--api-url", api.apiUrl, "labs", "artifacts", ...args], {
+        env: cliEnv(artifactHome.home, { LAZCO_TOKEN: FAKE_TOKEN, NO_COLOR: "1" }),
+        clock: fakeClock(Date.now()),
+      });
+      runs.push(result);
+      return result;
+    };
+    const publish = ["publish", report, "--region", "tw-tpe", "--title", "Report"];
+    const session = await connectSession(api, {
+      allowWrites: true,
+      cacheDirectory: artifactHome.cache,
+      clock: fakeClock(Date.now()),
+    });
+    try {
+      expect((await lazco(...publish)).code).toBe(0);
+      expect((await lazco(...publish, "--dry-run")).code).toBe(0);
+      expect((await lazco(...publish, "--human")).code).toBe(0);
+      for (const failing of ["POST /v1/labs/artifacts", "GET /v1/labs/artifacts/art-1"]) {
+        api.answer = (request) =>
+          `${request.method} ${request.path}` === failing
+            ? echo(request.headers.authorization ?? "none")
+            : undefined;
+        const args = failing.startsWith("POST") ? publish : ["update", "art-1", report];
+        expect((await lazco(...args)).code).toBe(1);
+      }
+      const tool = await session.client.callTool({
+        name: "labs_artifacts_update",
+        arguments: { id: "art-1", path: report },
+      });
+      expect(tool.isError).toBe(true);
+      const shown = [
+        ...runs.flatMap((result) => [result.stdout, result.stderr]),
+        JSON.stringify(tool),
+      ];
+      expect(shown.join("\n")).toContain("[REDACTED]");
+      for (const text of shown) {
+        expect(text.includes(FAKE_TOKEN) || text.includes(FAKE_TOKEN.slice(-8))).toBe(false);
+      }
+    } finally {
+      await session.close();
+      api.stop();
+      await artifactHome.cleanup();
     }
   });
 });
