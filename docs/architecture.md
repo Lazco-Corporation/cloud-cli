@@ -75,6 +75,15 @@ The exit code is 0, or 1 on any error.
 
 `lazco mcp install` writes the server into a client's configuration, see `docs/mcp-clients.md`.
 
+### Operations with no MCP tool
+
+An operation whose `x-lazco.mcp` is `false` gets a CLI command and no MCP tool, whatever flags `lazco mcp` gets.
+The backend decides which operations those are, never this repo.
+The base rule is that MCP offers what the API offers, except an operation whose answer holds a credential.
+The backend also keeps some groups of operations off MCP on purpose, stricter than that rule, each for its own reason, for example a standing charge or a person's consent or signature.
+The groups, the reason for each, their routes, and the steps to put a group back on MCP are in `docs/api-machine-spec.md` of `cloud-backend`, section "`mcp: false`".
+A spend operation with an MCP name follows the spend tier above.
+
 ## Builds
 
 `bun run build` writes `dist/` for Node 22 with every dependency external, so npm installs them with their licenses.
