@@ -55,6 +55,29 @@ describe("the loopback listener", () => {
     expect(again).toBeUndefined();
   });
 
+  test("a spare connection that sends no request is closed with the listener, so the process can exit", async () => {
+    const listener = await startLoopback();
+    const port = Number(new URL(listener.redirectUri).port);
+    const waiting = listener.callback(5000);
+
+    // A browser opens one like this to save time on its next request.
+    const spare = connect(port, "127.0.0.1");
+    await new Promise((resolve) => spare.once("connect", resolve));
+    const spareClosed = new Promise((resolve) => spare.once("close", resolve));
+
+    const answer = await fetch(`${listener.redirectUri}?code=c&state=s`);
+    expect(answer.status).toBe(200);
+    await answer.text();
+    await waiting;
+
+    const closed = await Promise.race([
+      spareClosed.then(() => true),
+      Bun.sleep(2000).then(() => false),
+    ]);
+    spare.destroy();
+    expect(closed).toBe(true);
+  });
+
   test("a request target that is no URL gets 404, and the listener keeps waiting", async () => {
     const listener = await startLoopback();
     const waiting = listener.callback(5000);
