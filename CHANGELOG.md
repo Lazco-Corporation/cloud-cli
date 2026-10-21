@@ -3,6 +3,19 @@
 All releases of `@lazco/cli` are in this file.
 The newest release is at the top.
 
+## [0.2.0]
+
+### Added
+
+- `lazco labs artifacts publish <path>` and `lazco labs artifacts update <artifact-id> <path>`, and the MCP tools `labs_artifacts_publish` and `labs_artifacts_update`, publish a Lazco Artifact from one HTML or Markdown file, or from a directory with one entry file and the images, CSS and fonts it uses.
+  In a directory, every file or directory whose name starts with a dot is skipped, so a `.env` is never published.
+  The command refuses a file type that an artifact may not hold, more than 100 files, and more than 5 MiB, before it sends anything.
+  An update reads the current version first and sends it as `If-Match`, unless `--if-match` gives it, so a change made since then fails instead of being overwritten.
+
+### Changed
+
+- The browser page that ends an SSO sign-in uses the Lazco design, in the dark theme.
+
 ## [0.1.0]
 
 ### Added
