@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { DATA_SENTENCE } from "../../src/mcp/tools";
+import { VERSION } from "../../src/shell/run";
 import { CLI_PATH, cliEnv, FAKE_TOKEN, makeHome } from "../helpers/cli";
 import { type FakeApi, json } from "../helpers/fakeApi";
 import { type FixtureState, fixtureApi } from "../helpers/fixtureApi";
@@ -153,14 +154,14 @@ describe("lazco mcp on stdio", () => {
   test("the User-Agent names mcp at startup and the client after initialize", async () => {
     const { client } = await connect();
     const startup = api.requests.map((request) => request.headers["user-agent"]);
-    expect(startup).toEqual(["lazco-cli/0.0.0 (mcp)", "lazco-cli/0.0.0 (mcp)"]);
+    expect(startup).toEqual([`lazco-cli/${VERSION} (mcp)`, `lazco-cli/${VERSION} (mcp)`]);
     const result = await client.callTool({
       name: "compute_get_server",
       arguments: { serverId: "srv-1" },
     });
     expect(result.isError).toBeUndefined();
     expect(api.requests.at(-1)?.headers["user-agent"]).toBe(
-      "lazco-cli/0.0.0 (mcp; test-client/1.2.3)",
+      `lazco-cli/${VERSION} (mcp; test-client/1.2.3)`,
     );
   });
 

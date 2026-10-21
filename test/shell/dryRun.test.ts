@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import packageJson from "../../package.json" with { type: "json" };
+import { VERSION } from "../../src/shell/run";
 import { cliEnv, FAKE_TOKEN, makeHome, runLazco, seedSpecCache } from "../helpers/cli";
 import type { FakeApi } from "../helpers/fakeApi";
 import { fixtureApi } from "../helpers/fixtureApi";
@@ -44,7 +44,7 @@ describe("--dry-run", () => {
       url: `${api.apiUrl}/servers/srv-1`,
       headers: {
         Accept: "application/json",
-        "User-Agent": `lazco-cli/${packageJson.version}`,
+        "User-Agent": `lazco-cli/${VERSION}`,
         "Content-Type": "application/json",
       },
       body: { confirmHostname: "web-1" },

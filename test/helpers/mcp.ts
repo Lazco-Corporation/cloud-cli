@@ -13,6 +13,7 @@ import { InputValidator } from "../../src/core/request/validate";
 import { SpecSource } from "../../src/core/spec/loader";
 import { staticCredential } from "../../src/credentials/credential";
 import { McpSession, type Scheduler } from "../../src/mcp/server";
+import { VERSION } from "../../src/shell/run";
 import { FAKE_TOKEN } from "./cli";
 import type { FakeApi } from "./fakeApi";
 
@@ -75,7 +76,7 @@ export async function connectSession(
   const warnings: string[] = [];
   const scheduler = manualScheduler();
   const session = await McpSession.start({
-    version: "0.0.0",
+    version: VERSION,
     allowWrites: options.allowWrites === true,
     allowSpend: options.allowSpend === true,
     secrets: () => [FAKE_TOKEN],

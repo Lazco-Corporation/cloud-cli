@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import packageJson from "../../package.json" with { type: "json" };
+import { VERSION } from "../../src/shell/run";
 import { cliEnv, FAKE_TOKEN, makeHome, runInProcess, runLazcoOnTerminal } from "../helpers/cli";
 import { type FakeApi, fakeClock, json } from "../helpers/fakeApi";
 import { loadFixture } from "../helpers/fixtures";
@@ -323,7 +323,7 @@ describe("--dry-run of a spend command", () => {
       url: `${api.apiUrl}/servers/srv-1/upgrade`,
       headers: {
         Accept: "application/json",
-        "User-Agent": `lazco-cli/${packageJson.version}`,
+        "User-Agent": `lazco-cli/${VERSION}`,
         "Content-Type": "application/json",
         "Idempotency-Key": expect.stringMatching(UUID_V4),
       },

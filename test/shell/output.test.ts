@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import packageJson from "../../package.json" with { type: "json" };
+import { VERSION } from "../../src/shell/run";
 import { cliEnv, FAKE_TOKEN, makeHome, ndjson, runLazco, runLazcoOnTerminal } from "../helpers/cli";
 import type { FakeApi } from "../helpers/fakeApi";
 import { closedApiUrl } from "../helpers/fakeApi";
@@ -27,7 +27,7 @@ function env(extra: Record<string, string | undefined> = {}) {
 describe("stdout", () => {
   test("--version prints the bare version", async () => {
     const run = await runLazco(["--version"], env());
-    expect(run).toEqual({ code: 0, stdout: `${packageJson.version}\n`, stderr: "" });
+    expect(run).toEqual({ code: 0, stdout: `${VERSION}\n`, stderr: "" });
   });
 
   test("one record is one JSON object, with no ANSI byte even when the API sends one", async () => {
