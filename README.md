@@ -1,162 +1,292 @@
-# Lazco CLI
+<div align="center">
 
-`lazco` is the command line and the local MCP server of [Lazco Cloud](https://lazco.tw).
-Its commands come from the API itself, so every API operation is a command as soon as the API ships it.
-Output is JSON by default, so scripts and agents can read it.
+# lazco
 
-## Install
+Lazco Cloud CLI and local MCP server: manage your Lazco Cloud resources from a terminal, a script or an AI agent.
 
-With Node.js 22 or later, run it without installing:
+[![npm](https://img.shields.io/npm/v/@lazco/cli)](https://www.npmjs.com/package/@lazco/cli) [![CI](https://github.com/Lazco-Corporation/cloud-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/Lazco-Corporation/cloud-cli/actions/workflows/ci.yml) [![Node.js](https://img.shields.io/node/v/@lazco/cli)](package.json) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-```sh
-npx -y @lazco/cli --version
-```
+[Installation](#installation) · [Quick start](#quick-start) · [Sign in](#sign-in) · [Scripts](#use-it-in-a-script) · [Spending](#commands-that-spend) · [MCP](#use-it-from-an-mcp-client)
 
-Or install it globally:
+</div>
+
+`lazco` is the command line of [Lazco Cloud](https://lazco.tw).
+It runs the operations of the Lazco Cloud API, such as servers, DNS, domains, billing, Lazco Pages and Lazco Artifacts.
+
+## Highlights
+
+- **Every API operation is a command.**
+  `lazco` reads the API's spec when it runs, so a new API operation is a command on the day the API ships it, with no update of `lazco`.
+- **Answers in JSON.**
+  stdout holds only the answer, and an error is one JSON line on stderr with exit code 1.
+  See [Use it in a script](#use-it-in-a-script).
+- **No charge without a quote.**
+  A command that spends from your account balance shows the price from the API first, and asks you.
+  A retry never charges twice.
+  See [Commands that spend](#commands-that-spend).
+- **Credentials in the OS keychain.**
+  Sign in in a browser, with a code on another device, or with an API token.
+  See [Sign in](#sign-in).
+- **An MCP server for 8 AI clients.**
+  `lazco mcp install` adds it to Claude Code, Codex, Cursor and 5 more, with read tools only until you allow writes.
+  See [Use it from an MCP client](#use-it-from-an-mcp-client).
+- **Publish a site or a document.**
+  Deploy a directory to Lazco Pages and upload only the changed files, or publish an HTML or Markdown file as a Lazco Artifact.
+  See [Publish a Lazco Pages site](#publish-a-lazco-pages-site).
+
+## Installation
+
+With Node.js 22 or later, install `lazco` from npm:
 
 ```sh
 npm install -g @lazco/cli
 ```
 
-Or install the binary, which needs no Node.js, on macOS or Linux:
+Check the install:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Lazco-Corporation/cloud-cli/main/scripts/install.sh | bash -s -- install
+lazco --version
+```
+
+It prints the version, such as `0.2.0`.
+
+To run `lazco` without an install, use `npx -y @lazco/cli <command>`.
+
+To install the binary, which needs no Node.js, on macOS or Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Lazco-Corporation/cloud-cli/main/scripts/install.sh \
+  | bash -s -- install
 ```
 
 The installer puts `lazco` in `~/.local/bin`, or in `$LAZCO_INSTALL_DIR`, and checks the archive against `SHA256SUMS`.
-Run it with `update` or `uninstall` later.
-Each [release](https://github.com/Lazco-Corporation/cloud-cli/releases) also has the archives for darwin-arm64, darwin-x64, linux-x64, linux-arm64 and windows-x64.
+Run it again with `update` or `uninstall` in place of `install`.
+When GitHub limits the API rate of your network, the installer fails.
+Set `GH_TOKEN` to a GitHub token and run it again.
+
+On Windows, use npm, or download the zip from a [release](https://github.com/Lazco-Corporation/cloud-cli/releases).
+Each release has archives for darwin-arm64, darwin-x64, linux-x64, linux-arm64 and windows-x64.
+
+## Quick start
+
+| Use | How | You get |
+|---|---|---|
+| In a terminal | Add `--human` to a command | A table or a list of fields |
+| In a script | Run the command as it is | JSON on stdout, errors as JSON on stderr |
+| From an AI agent | `lazco mcp install --client <client>` | The API operations as MCP tools |
+
+1. Sign in.
+   On a terminal, `lazco` asks which way to sign in:
+
+   ```sh
+   lazco auth login
+   ```
+
+2. Check who you are signed in as:
+
+   ```sh
+   lazco whoami --fields organization,role
+   ```
+
+   ```json
+   {"organization":{"id":"<organization id>","name":"<organization name>"},"role":"owner"}
+   ```
+
+3. List your servers as a table:
+
+   ```sh
+   lazco compute list --human
+   ```
+
+Find the command you need:
+
+| Command | Prints |
+|---|---|
+| `lazco --help` | The command groups, such as `compute`, `dns` and `billing` |
+| `lazco compute --help` | The commands of one group |
+| `lazco compute create --help` | The arguments and the flags of one command |
+| `lazco --describe` | Every command, one JSON line each |
+| `lazco --describe compute create` | One command and its input as JSON Schema |
 
 ## Sign in
 
-Sign in with your Lazco account:
-
-```sh
-lazco auth login --sso
-```
-
-Your browser opens the Lazco Cloud sign-in. Pick the organization and the access, read only or read and write, and return to the terminal.
-Over SSH, on Linux without a display, or with `--device`, `lazco` prints a URL and a code instead. Open the URL on any device and enter the code there, and only there.
-
-| Option | Does |
+| Command | Signs in with |
 |---|---|
-| `--device` | Prints a URL and a code to sign in on another device, with no browser on this machine |
-| `--org <organization id>` | Preselects that organization |
-| `--read-only` | Asks for read-only access |
-| `--switch` | Picks the organization again, and signs out the previous sign-in of the profile. When that sign-out fails, stderr says so, and the old sign-in stays in the list until you end it there |
+| `lazco auth login --sso` | Your Lazco account, in a browser on this machine |
+| `lazco auth login --device` | Your Lazco account, with a URL and a code that you open on another device |
+| `lazco auth login --with-token` | An API token from stdin, which you create on the API page of the Lazco Cloud panel |
 
-The sign-in renews itself while you use it, and ends after 30 days without use.
-You can see and end it in the signed-in products of the Cloud panel's settings.
-
-Or sign in with an API token, which you create on the API page of the Lazco Cloud panel.
-Without a flag, `lazco auth login` asks on a terminal which way to sign in, and asks for the token without showing it.
 In a script, pipe the token in:
 
 ```sh
 printf '%s' "$TOKEN" | lazco auth login --with-token
 ```
 
-Login checks the credential and stores it in the system keychain.
-It prints the profile, the method, the API URL, the organization, the access and where the credential is stored:
+With `--sso`, your browser opens the Lazco Cloud sign-in.
+Pick the organization and the access, read only or read and write, then go back to the terminal.
+Over SSH, or on Linux with no display, `--sso` prints a URL and a code, the same as `--device`.
+Enter the code only on the page that the URL opens.
 
-```json
-{"profile":"default","method":"sso","apiUrl":"https://api.lazco.tw/v1","organization":{"id":"<uuid>","name":"<name>"},"scope":"read_write","store":"keychain","current":true}
-```
-
-When there is no keychain, the credential goes into the config file with mode 0600, `store` is `file`, and `path` names the file.
-
-| Command | Prints |
+| Flag | Does |
 |---|---|
-| `lazco auth status` | `profile`, `method`, `apiUrl`, `store`, `organization`, `role`, `scope` and `expiresAt` |
-| `lazco auth logout` | `{"profile":"<name>","loggedOut":true}`. It ends an SSO sign-in. When it cannot reach the API, it still forgets the profile, but exits with `CLI_NETWORK`, and the sign-in stays in the list until you end it there or it is unused for 30 days. An API token stays valid until you revoke it in the panel, and stderr names the page |
-| `lazco profile list` | One line per profile, never its credential |
+| `--org <organization id>` | Preselects that organization |
+| `--read-only` | Asks for read-only access |
+| `--switch` | Picks the organization again, and signs out the previous sign-in of the profile |
+
+An SSO sign-in renews itself while you use it, and ends after 30 days without use.
+You can see and end it in the signed-in products of the Cloud panel's settings.
+
+`lazco` stores the credential in the OS keychain.
+When there is no keychain, it stores the credential in its config file with mode 0600, and says so on stderr.
+
+| Command | Does |
+|---|---|
+| `lazco auth status` | Prints the profile, the method, the organization, the role, the access and the expiry |
+| `lazco auth logout` | Signs out and forgets the credential. An API token stays valid until you revoke it in the panel |
+| `lazco profile list` | Prints one line per profile, never its credential |
 | `lazco profile use <name>` | Makes a profile the current one |
 
-`--profile <name>` signs in or uses another profile, for example one organization each.
-A profile name is 1 to 64 letters, digits, `.`, `_` or `-`, and starts with a letter or a digit.
-Without `--profile`, the profile is `default`.
-`LAZCO_TOKEN` overrides every profile, and `LAZCO_PROFILE` picks one.
+A profile is one stored sign-in, for example one for each organization.
+Add `--profile <name>` to any command to sign in to or use another profile.
+Without it, `lazco` uses the current profile, which starts as `default`.
 
-## Use it
+## Use it in a script
+
+- stdout holds only the answer: one JSON object, or one JSON object per line for a list with pages.
+- An error is one line `{"error":{"code":"...","message":"..."}}` on stderr, and the exit code is 1.
+  A code that starts with `CLI_` comes from `lazco`.
+  Any other code comes from the API.
+- Every other line on stderr starts with `lazco: `, such as a warning or the progress of a task.
+- A command that starts a task, such as a deploy, waits until the task ends.
+
+| Flag | Does |
+|---|---|
+| `--json <payload>` | Gives the whole input as JSON. `--json -` reads it from stdin |
+| `--fields <a,b>` | Keeps only these top-level fields of each record |
+| `--page-all` | Follows every page of a list |
+| `--dry-run` | Checks the input and prints the request, and sends nothing |
+| `--yes` | Confirms a command that deletes or spends, with no question |
+| `--no-wait` | Prints the accepted task at once, and does not wait for it |
+| `--timeout <seconds>` | Sets how long to wait for a task. The default is 600 |
+| `--human` | Prints readable text instead of JSON |
+
+| Environment variable | Does |
+|---|---|
+| `LAZCO_TOKEN` | Uses this API token, and ignores every profile |
+| `LAZCO_PROFILE` | Picks the profile |
+| `NO_COLOR` | Turns off the color of `--human` |
+
+For example, check a new server's input before you send it:
 
 ```sh
-lazco compute list
-lazco compute get <server-id>
-lazco --describe compute create     # the command and its input as JSON Schema
-lazco compute create --json - < server.json --dry-run
+lazco compute create --json - --dry-run < server.json
 ```
 
-`lazco --help` lists the command groups, and `lazco --describe` lists every command.
+A command that deletes asks first on a terminal.
+Some delete commands also need a confirm field, such as `--confirm` of `lazco compute delete`, and `--yes` does not replace it.
 
-- stdout holds the answer only: one JSON object, or one JSON object per line for a list.
-- An error is one line `{"error":{"code":"...","message":"...",...}}` on stderr, and the exit code is 1. A code starting with `CLI_` comes from `lazco`, and any other code from the API.
-- Every other line on stderr starts with `lazco: `, such as a warning or the flag that gets the next page.
-- `--human` prints a table instead. `NO_COLOR` turns its color off.
-- `--page-all` follows every page of a list.
-- A command that deletes or spends asks first on a terminal. `--yes` confirms without asking, and a command that needs the resource's name still needs it in its field.
-- A command that spends asks the API for a quote first, and shows it on stderr: the amount it takes from the account balance, each line, the period, the recurring charge, and when the quote expires.
-  It then asks, or needs `--yes`, and spends exactly the quoted amount.
-  Without a yes it exits 1 with `CLI_CONFIRM_REQUIRED`, and the error's `details.quote` holds the quote.
-- `--dry-run` of a command that spends asks for its quote, which charges nothing, and prints the request it would send with the quote in `body` and in `quote`.
-  `--quote-id <id>` with `--expected-amount <amount>` spends with a quote you already have, such as the one of a dry run, and asks for no new one.
-  A quote is good for 10 minutes and for one spend.
-  When the API refuses a quote, `lazco` never asks for a new one by itself, because that is a price nobody saw.
-- A command that spends sends an `Idempotency-Key`, so a retry after a lost answer never charges twice.
-  `--idempotency-key <key>` chooses the key: run the same command again with the same key, within 24 hours, to get the first result instead of a second charge.
-- A task such as a deploy is waited for. `--no-wait` prints the accepted task at once.
+## Commands that spend
 
-### Publish a Lazco Pages site
+A command that spends from your account balance, such as `lazco compute create`, follows these steps:
+
+1. It asks the API for a quote, which charges nothing.
+2. It shows the quote on stderr: the amount, each line, the period, the recurring charge and when the quote expires.
+3. It asks you, or needs `--yes`.
+   Without a yes, it exits with `CLI_CONFIRM_REQUIRED`, and `details.quote` of the error holds the quote.
+4. It spends exactly the quoted amount.
+
+`--dry-run` gets the quote and prints the request that it would send, with the quote in `quote`.
+To spend with a quote that you already have, add `--quote-id <id>` and `--expected-amount <amount>`.
+A quote is good for 10 minutes and for one spend.
+When the API refuses a quote, `lazco` does not get a new one by itself, because nobody saw that price.
+
+Each spend sends an idempotency key, so a retry after a lost answer never charges twice.
+To pick the key, add `--idempotency-key <key>`.
+Run the same command with the same key within 24 hours to get the first result, not a second charge.
+
+## Publish a Lazco Pages site
 
 ```sh
 lazco labs pages deployments create <site-id> ./dist
-lazco labs pages deployments create <site-id> ./dist --dry-run
 ```
 
-The directory is the site's root, and every file in it becomes public.
-Paths with a segment that starts with a dot, `__MACOSX` and `node_modules` are skipped, so a `.env` next to a build is never published.
-A link, a zip archive or a single file is refused: unpack an archive first.
-The command checks the API's limits before it sends anything, uploads only the files that changed since the live deploy, and waits until the deployment is live, for 600 seconds or `--timeout`.
-A failed or interrupted upload cancels the deployment, so the next deploy can start at once.
-`--dry-run` reads the limits and the site, and prints the manifest it would send.
+The directory becomes the root of the site, and every file in it becomes public.
+`lazco` skips each path with a segment that starts with a dot, `__MACOSX` or `node_modules`, so a `.env` next to your build is never published.
+It refuses a link, a zip archive or a single file.
+Unpack an archive first.
 
-### Publish a Lazco Artifact
+The command checks the limits of the API before it sends anything.
+It uploads only the files that changed since the live deploy, and waits until the new deploy is live.
+A failed or stopped upload cancels the deploy, so the next deploy can start at once.
+Add `--dry-run` to print the file list that it would send.
+
+## Publish a Lazco Artifact
+
+A Lazco Artifact is a document or a web page with a permanent link.
 
 ```sh
 lazco labs artifacts publish ./report.md --region <region> --title "<title>"
-lazco labs artifacts publish ./report --region <region> --title "<title>"
-lazco labs artifacts update <artifact-id> ./report
+lazco labs artifacts update <artifact-id> ./report.md
 ```
 
-The path is one HTML or Markdown file, or a directory with one entry file and the images, CSS and fonts it uses.
-Anyone with the link the answer holds in `url` can open it.
-In a directory, every file or directory whose name starts with a dot is skipped, so a `.env` is never published.
-The command refuses a file type a publish may not hold, more than 100 files and more than 5 MiB before it sends anything.
-The answer's `warnings` lists what the page loads from outside, misses or runs, which will not work.
-An update reads the current version first and sends it as `If-Match`, unless `--if-match` gives it, so a change made since then fails instead of being overwritten.
+The path is one HTML or Markdown file, or a directory with one entry file and the images, CSS and fonts that it uses.
+Anyone with the link in `url` of the answer can open it.
+In a directory, `lazco` skips each file or directory whose name starts with a dot.
+
+`lazco` refuses a file type that an artifact cannot hold, more than 100 files, or more than 5 MiB, before it sends anything.
+`warnings` in the answer lists what the page loads from outside, misses or runs, because those parts will not work.
+
+An update fails when someone changed the artifact after `lazco` read it, so it never overwrites that change.
+`lazco labs artifacts delete <artifact-id>` stops the link at once.
 
 ## Use it from an MCP client
 
-`lazco mcp` is a local MCP server with the same sign-in, and it renews an SSO sign-in as it runs.
-Add it to a client with:
+`lazco mcp` is a local MCP server that uses the same sign-in as the commands.
+Add it to your client:
 
 ```sh
 lazco mcp install --client <client>
 ```
 
 `<client>` is one of `claude-code`, `claude-desktop`, `codex`, `cursor`, `devin`, `gemini`, `pi` or `vscode`.
+Add `--dry-run` to see the entry without writing it.
 The entry holds the command only, never a credential.
-`--profile <name>`, `--allow-writes` and `--allow-spend` go into the entry, and `--dry-run` shows the entry without writing it.
 
-Without `--allow-writes` the server offers read tools only.
-With it, the server adds the tools that change things, and the deleting ones that need the resource's name.
-With `--allow-spend` too, it adds the tools that spend from the account balance, each with its quote tool.
-A spend tool needs a quote from its quote tool, and its description tells the model to show the quote and get your yes first.
-When the client can ask you itself (MCP elicitation), the server shows you the quote from the API and spends only after you accept.
-A read-only token gets read tools only.
+| Flag | The server offers |
+|---|---|
+| None | Read tools only |
+| `--allow-writes` | Also the tools that change things, and the delete tools that need the resource's name |
+| `--allow-spend` | With `--allow-writes`, also the tools that spend from the account balance, each with its quote tool |
 
-For a desktop client, install `lazco` globally first, so the entry names it by its full path.
+A spend tool needs a quote from its quote tool.
+Its description tells the model to show you the quote and get your yes first.
+When the client can ask you itself (MCP elicitation), the server shows you the quote and spends only after you accept.
+A read-only sign-in gets read tools only.
+`--profile <name>` picks the profile that the server uses.
+
+For a desktop client, install `lazco` globally first, so the entry names its full path.
+
+## Limitations
+
+- **Commands follow your organization.**
+  `--help` and `--describe` hide the commands of a product that your organization has not turned on.
+- **It needs the API to start.**
+  `lazco` reads the spec from the API and keeps a copy for 10 minutes.
+  With no network and no copy, the API commands do not run.
+- **`--human` is for people.**
+  Its columns follow the API's answer.
+  Parse the JSON in a script.
+
+## Contributing
+
+Report a bug or ask for a feature in [GitHub issues](https://github.com/Lazco-Corporation/cloud-cli/issues).
+For a question about your account or a bill, write to `support@lazco.tw`.
+Report a vulnerability to `security@lazco.tw`, not in an issue.
+
+The changes of each release are in [CHANGELOG.md](CHANGELOG.md).
+The build and test commands are in [AGENTS.md](AGENTS.md), and [docs/](docs/) explains how the code works.
 
 ## License
 
-MIT. The binaries carry the notices of the code compiled into them in `THIRD_PARTY_NOTICES.txt`.
+[MIT](LICENSE).
+Each binary carries the notices of the code compiled into it in `THIRD_PARTY_NOTICES.txt`.
