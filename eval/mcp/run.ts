@@ -36,7 +36,7 @@ const { values } = parseArgs({
   options: {
     tier: { type: "string" },
     profile: { type: "string", default: "staging" },
-    model: { type: "string", default: "oncloud_ai/anthropic/claude-sonnet-5-5" },
+    model: { type: "string", default: "oncloud_ai/claude-opus-5-5" },
     thinking: { type: "string", default: "low" },
     concurrency: { type: "string", default: "4" },
     only: { type: "string" },
