@@ -55,15 +55,19 @@ describe("the loopback listener", () => {
     expect(again).toBeUndefined();
   });
 
-  test("a spare connection that sends no request is closed with the listener, so the process can exit", async () => {
+  test("a spare connection that never ends a request is closed with the listener, so the process can exit", async () => {
     const listener = await startLoopback();
     const port = Number(new URL(listener.redirectUri).port);
     const waiting = listener.callback(5000);
 
-    // A browser opens one like this to save time on its next request.
+    // A browser holds a spare connection like this one open. It sends a partial request, because
+    // a server with TCP_DEFER_ACCEPT, such as Bun on Linux, never accepts a socket that sends nothing.
     const spare = connect(port, "127.0.0.1");
     await new Promise((resolve) => spare.once("connect", resolve));
     const spareClosed = new Promise((resolve) => spare.once("close", resolve));
+    spare.on("error", () => undefined);
+    spare.write("GET /favicon.ico HTTP/1.1\r\n");
+    await Bun.sleep(50);
 
     const answer = await fetch(`${listener.redirectUri}?code=c&state=s`);
     expect(answer.status).toBe(200);
