@@ -60,8 +60,9 @@ describe("the loopback listener", () => {
     const port = Number(new URL(listener.redirectUri).port);
     const waiting = listener.callback(5000);
 
-    // A browser holds a spare connection like this one open. It sends a partial request, because
-    // a server with TCP_DEFER_ACCEPT, such as Bun on Linux, never accepts a socket that sends nothing.
+    // A browser holds a spare connection open that sends nothing. This one sends a partial request
+    // instead, because a server with TCP_DEFER_ACCEPT, such as Bun on Linux, never accepts a socket
+    // that sends nothing, so the test would see no close there.
     const spare = connect(port, "127.0.0.1");
     await new Promise((resolve) => spare.once("connect", resolve));
     const spareClosed = new Promise((resolve) => spare.once("close", resolve));
