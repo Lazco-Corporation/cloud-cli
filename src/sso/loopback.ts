@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
 import { CliError } from "../core/errors";
 
 /** The life of a pending authorization request at the provider. */
@@ -108,6 +108,9 @@ export async function startLoopback(
   let settle: ((query: URLSearchParams) => void) | undefined;
   let received: URLSearchParams | undefined;
   let answered = false;
+  // A browser can open spare connections that never send a request, and an open
+  // socket keeps the process alive after the sign-in, so close() destroys each one.
+  const sockets = new Set<Socket>();
   const server = createServer((request, response) => {
     const url = requestUrl(request.url);
     if (
@@ -133,6 +136,10 @@ export async function startLoopback(
       settle?.(received);
     });
   });
+  server.on("connection", (socket: Socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+  });
   let redirectUri: string | undefined;
   let lastError: unknown;
   for (const host of hosts) {
@@ -151,7 +158,9 @@ export async function startLoopback(
   }
   const close = () => {
     server.close();
-    server.closeIdleConnections();
+    for (const socket of sockets) {
+      socket.destroy();
+    }
   };
   return {
     redirectUri,
@@ -159,8 +168,7 @@ export async function startLoopback(
     callback: (timeoutMs) =>
       new Promise<URLSearchParams>((resolve, reject) => {
         const timer = setTimeout(() => {
-          server.close();
-          server.closeAllConnections();
+          close();
           reject(
             new CliError(
               "CLI_TIMEOUT",

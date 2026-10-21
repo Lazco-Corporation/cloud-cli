@@ -3,6 +3,13 @@
 All releases of `@lazco/cli` are in this file.
 The newest release is at the top.
 
+## [0.2.1]
+
+### Fixed
+
+- `lazco auth login` with the browser exits after it prints the sign-in.
+  It kept running when the browser held a spare connection open to the CLI, though the sign-in was already stored.
+
 ## [0.2.0]
 
 ### Added

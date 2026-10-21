@@ -55,6 +55,34 @@ describe("the loopback listener", () => {
     expect(again).toBeUndefined();
   });
 
+  test("a spare connection that never ends a request is closed with the listener, so the process can exit", async () => {
+    const listener = await startLoopback();
+    const port = Number(new URL(listener.redirectUri).port);
+    const waiting = listener.callback(5000);
+
+    // A browser holds a spare connection open that sends nothing. This one sends a partial request
+    // instead, because a server with TCP_DEFER_ACCEPT, such as Bun on Linux, never accepts a socket
+    // that sends nothing, so the test would see no close there.
+    const spare = connect(port, "127.0.0.1");
+    await new Promise((resolve) => spare.once("connect", resolve));
+    const spareClosed = new Promise((resolve) => spare.once("close", resolve));
+    spare.on("error", () => undefined);
+    spare.write("GET /favicon.ico HTTP/1.1\r\n");
+    await Bun.sleep(50);
+
+    const answer = await fetch(`${listener.redirectUri}?code=c&state=s`);
+    expect(answer.status).toBe(200);
+    await answer.text();
+    await waiting;
+
+    const closed = await Promise.race([
+      spareClosed.then(() => true),
+      Bun.sleep(2000).then(() => false),
+    ]);
+    spare.destroy();
+    expect(closed).toBe(true);
+  });
+
   test("a request target that is no URL gets 404, and the listener keeps waiting", async () => {
     const listener = await startLoopback();
     const waiting = listener.callback(5000);
