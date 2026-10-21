@@ -7,13 +7,47 @@ export const LOOPBACK_TIMEOUT_MS = 10 * 60 * 1000;
 
 export const CALLBACK_PATH = "/callback";
 
+/*
+ * The colours, sizes and shadow are copied by hand from the dark theme in
+ * `dist/tokens.css` of `@lazco-corporation/design-system`, and the font stack
+ * from its `dist/email.json`. The CLI does not depend on the package for one
+ * page, and the page loads no font file, so it uses the system faces the email
+ * stack names.
+ * The answer can be a denied sign-in, so the page shows no success state.
+ */
 const DONE_PAGE = `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Lazco CLI</title></head>
-<body style="font-family: system-ui, sans-serif; margin: 3rem auto; max-width: 32rem; line-height: 1.6">
-<h1 style="font-size: 1.25rem">Return to your terminal</h1>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Lazco CLI</title>
+<style>
+:root{--ground:#08090a;--panel:#101112;--ink:#e8eaec;--ink-2:#c3c8cc;--faint:#858c92;--line:rgba(255,255,255,.07);--brand-fill:#40b7f3;--shadow-2:inset 0 1px 0 0 rgba(255,255,255,.03),inset 0 0 0 1px rgba(255,255,255,.05),0 1px 1px -.5px rgba(0,0,0,.18)}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--ground);color:var(--ink-2);font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei',-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+main{width:100%;max-width:26rem;padding:28px;background:var(--panel);border-radius:10px;box-shadow:var(--shadow-2)}
+.mark{display:flex;align-items:center;gap:8px;margin:0 0 20px;color:var(--faint);font-size:11.5px;font-weight:600}
+.mark::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--brand-fill)}
+h1{margin:0 0 6px;color:var(--ink);font-size:24px;line-height:1.25;font-weight:650;letter-spacing:-.01em}
+.title{margin:0 0 6px;color:var(--ink);font-size:16px;line-height:1.25;font-weight:600}
+p{margin:0}
+hr{margin:20px 0;border:0;border-top:1px solid var(--line)}
+@media (max-width:640px){h1{font-size:26px}.title{font-size:17px}.mark{font-size:12.5px}}
+</style>
+</head>
+<body>
+<main>
+<p class="mark">Lazco CLI</p>
+<h1>Return to your terminal</h1>
 <p>The Lazco CLI got the answer from your browser. You can close this tab.</p>
-<p lang="zh-Hant-TW">請回到終端機。Lazco CLI 已經收到瀏覽器的回應，你可以關閉這個分頁。</p>
+<hr>
+<div lang="zh-Hant-TW">
+<p class="title">請回到終端機</p>
+<p>Lazco CLI 已經收到瀏覽器的回應，你可以關閉這個分頁。</p>
+</div>
+</main>
 </body>
 </html>
 `;
