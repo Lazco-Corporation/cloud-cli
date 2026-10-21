@@ -80,10 +80,9 @@ The exit code is 0, or 1 on any error.
 An operation whose `x-lazco.mcp` is `false` gets a CLI command and no MCP tool, whatever flags `lazco mcp` gets.
 The backend decides which operations those are, never this repo.
 The base rule is that MCP offers what the API offers, except an operation whose answer holds a credential.
-The backend also keeps some operations off MCP on purpose, stricter than that rule, because an agent must not do them for a person, for example turning on an automatic charge or signing an agreement.
+The backend also keeps some groups of operations off MCP on purpose, stricter than that rule, each for its own reason, for example an automatic charge or a signature that only a person may give.
 The groups, the reason for each, their routes, and the steps to put a group back on MCP are in `docs/api-machine-spec.md` of `cloud-backend`, section "`mcp: false`".
-A spend operation is off MCP only when its answer holds a credential too, as the reinstall's does.
-Every other spend operation has a tool behind `--allow-writes --allow-spend`.
+A spend operation with an MCP name follows the spend tier above.
 
 ## Builds
 
