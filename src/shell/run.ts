@@ -52,7 +52,7 @@ import { describeEntry, summarizeEntry } from "./describe";
 import { type CommandEntry, handwrittenEntry, operationEntry } from "./entries";
 import { isHidden, readFeatures } from "./features";
 import { extractGlobalFlags, type GlobalFlags } from "./globalFlags";
-import { commandUsage, groupUsage } from "./help";
+import { commandUsage, groupUsage, hiddenCommandsNotice } from "./help";
 import { buildInput, flagSpecs, parsePayload } from "./input";
 import { type Io, readAll } from "./io";
 import { writeError, writeNotice, writeResult } from "./output";
@@ -336,13 +336,24 @@ class Shell {
     prefix: readonly string[],
     surface?: Surface,
   ): Promise<CommandEntry[]> {
-    const entries = surface
-      ? surface.tree.below(prefix)
-      : this.handwritten.filter((entry) => startsWith(entry.command, prefix));
+    return (await this.entriesBelow(prefix, surface)).visible;
+  }
+
+  /** The commands under a prefix, split by whether the organization's features hide them. */
+  private async entriesBelow(
+    prefix: readonly string[],
+    surface?: Surface,
+  ): Promise<{ visible: CommandEntry[]; hidden: CommandEntry[] }> {
+    const entries = (
+      surface
+        ? surface.tree.below(prefix)
+        : this.handwritten.filter((entry) => startsWith(entry.command, prefix))
+    ).sort((left, right) => left.command.join(" ").localeCompare(right.command.join(" ")));
     const features = await this.features();
-    return entries
-      .filter((entry) => !isHidden(entry.feature, features))
-      .sort((left, right) => left.command.join(" ").localeCompare(right.command.join(" ")));
+    return {
+      visible: entries.filter((entry) => !isHidden(entry.feature, features)),
+      hidden: entries.filter((entry) => isHidden(entry.feature, features)),
+    };
   }
 
   /**
@@ -397,7 +408,7 @@ class Shell {
   }
 
   private async groupHelp(prefix: readonly string[], surface?: Surface): Promise<void> {
-    const entries = await this.visibleEntries(prefix, surface);
+    const { visible: entries, hidden } = await this.entriesBelow(prefix, surface);
     const children = new Map<string, string>();
     for (const entry of entries) {
       const word = entry.command[prefix.length];
@@ -414,6 +425,9 @@ class Shell {
         sorted.map(([word, summary]) => ({ word, summary })),
       ),
     );
+    for (const line of hiddenCommandsNotice(hidden)) {
+      writeNotice(this.io, redactSecrets(`note: ${line}`, this.secrets()));
+    }
   }
 
   private secrets(): string[] {

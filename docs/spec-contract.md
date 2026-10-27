@@ -177,4 +177,5 @@ Every error of the wait, a failed task read included, carries the 202 body as `a
 
 The `whoami` answer is cached for 10 minutes at `<cache dir>/lazco/whoami/<sha256 of the credential>.json`, which never holds the credential.
 A command whose feature is off leaves `--help` and `--describe`, and still runs by name, so the user sees the API's own refusal.
+`--help` of a group says on stderr which commands under it it left out, one `lazco: note:` line per feature naming the feature and up to six commands, so a group whose commands are all hidden does not look empty for no reason.
 An MCP tool whose feature is off is not registered, and the instructions name the feature.
