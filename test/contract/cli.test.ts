@@ -195,7 +195,13 @@ describe("pagination", () => {
   test(
     "--page-all walks every page of a page-numbered list",
     async () => {
-      const first = await lazco(home.home, READ_TOKEN, ["billing", "transactions", "list"]);
+      // The whole list at the default page size, since the organization can hold more than one page.
+      const first = await lazco(home.home, READ_TOKEN, [
+        "billing",
+        "transactions",
+        "list",
+        "--page-all",
+      ]);
       expect(first.code).toBe(0);
       const walked = await lazco(home.home, READ_TOKEN, [
         "billing",

@@ -107,9 +107,12 @@ describe("the uploader pages-deployment", () => {
   test("the tool is offered only with --allow-writes on a profile that can write", () => {
     const { operations } = generateSurface(loadFixture("pages"), ajv);
     const named = (allowWrites: boolean, scope: string) =>
-      selectTools(operations, { allowWrites, allowSpend: false, facts: facts(scope) }).tools.map(
-        (tool) => tool.name,
-      );
+      selectTools(operations, {
+        allowWrites,
+        allowSpend: false,
+        only: [],
+        facts: facts(scope),
+      }).tools.map((tool) => tool.name);
     expect(named(false, "read_write")).not.toContain("labs_pages_create_deployment");
     expect(named(true, "read")).not.toContain("labs_pages_create_deployment");
     expect(named(true, "read_write")).toContain("labs_pages_create_deployment");
@@ -117,6 +120,7 @@ describe("the uploader pages-deployment", () => {
     const tool = selectTools(operations, {
       allowWrites: true,
       allowSpend: false,
+      only: [],
       facts: facts("read_write"),
     }).tools.find((candidate) => candidate.name === "labs_pages_create_deployment");
     expect(Object.keys(tool?.inputSchema.properties as object)).toEqual(["id", "directory"]);
@@ -133,6 +137,7 @@ describe("the uploader pages-deployment", () => {
     const tools = selectTools(operations, {
       allowWrites: true,
       allowSpend: false,
+      only: [],
       facts: facts("read_write"),
     }).tools;
     expect(tools.map((tool) => tool.name)).not.toContain("labs_pages_create_deployment");

@@ -81,6 +81,10 @@ const COMMANDS: string[][] = [
   ["auth", "status"],
   ["auth", "status", "--human"],
   ["profile", "list"],
+  ["mcp", "--only", "compute artefacts"],
+  ["mcp", "--only", ""],
+  ["mcp", "install", "--client", "cursor", "--only", "compute", "--dry-run"],
+  ["mcp", "install", "--client", "cursor", "--only", ""],
 ];
 
 /**

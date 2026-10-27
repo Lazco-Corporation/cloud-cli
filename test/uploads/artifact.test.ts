@@ -130,6 +130,7 @@ describe("the uploader artifact", () => {
     const { tools } = selectTools(generateSurface(loadFixture("artifacts"), ajv).operations, {
       allowWrites: true,
       allowSpend: false,
+      only: [],
       facts: {
         organization: { id: "org-1", name: "Org" },
         scope: "read_write",

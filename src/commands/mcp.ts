@@ -5,6 +5,7 @@ import { CliError } from "../core/errors";
 import { SpecSource } from "../core/spec/loader";
 import { installClient, MCP_CLIENTS, type McpClient, resolveLauncher } from "../mcp/install";
 import { McpSession } from "../mcp/server";
+import type { CommandPrefix } from "../mcp/tools";
 import { writeNotice } from "../shell/output";
 import type { HandwrittenCommand } from "./types";
 
@@ -13,11 +14,36 @@ function userAgentToken(text: string): string {
   return text.replace(/[^A-Za-z0-9._\-/ ]/g, "").slice(0, 64);
 }
 
+const ONLY_PROPERTY = {
+  type: "array",
+  items: { type: "string" },
+  description:
+    'Offer only the tools whose command path starts with this prefix, such as "labs artifacts". It filters the local tool list and does not limit what the credential may call',
+};
+
+/** The `--only` values as word lists. A value with no word is a mistake to say before any request. */
+function readOnly(values: unknown): CommandPrefix[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return values.map((value) => {
+    const words = String(value).split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
+      throw new CliError(
+        "CLI_INVALID_INPUT",
+        "--only needs a command path prefix, such as labs pages",
+        [{ field: "only", message: "has no word" }],
+      );
+    }
+    return words;
+  });
+}
+
 const serve: HandwrittenCommand = {
   command: ["mcp"],
   summary: "Serve the API's operations as MCP tools on stdio",
   description:
-    "A local MCP server for an MCP client to start. It uses the credential of this run, as every command does, and refreshes an SSO sign-in as it goes. Without --allow-writes it offers read tools only. With it, write tools and the destructive tools that need a confirmation are added, unless the token's scope is read. With --allow-spend too, the tools that spend from the account balance are added, each with its quote tool. Nothing but MCP is written to stdout.",
+    "A local MCP server for an MCP client to start. It uses the credential of this run, as every command does, and refreshes an SSO sign-in as it goes. Without --allow-writes it offers read tools only. With it, write tools and the destructive tools that need a confirmation are added, unless the token's scope is read. With --allow-spend too, the tools that spend from the account balance are added, each with its quote tool. --only keeps only the tools under the given command path prefixes, after those rules, and fails the start when a prefix matches no command with an MCP tool. Nothing but MCP is written to stdout.",
   kind: "read",
   positionals: [],
   inputSchema: {
@@ -32,10 +58,12 @@ const serve: HandwrittenCommand = {
         description:
           "With --allow-writes, add the tools that spend from the account balance, each with its quote tool",
       },
+      only: ONLY_PROPERTY,
     },
     additionalProperties: false,
   },
   async run(input, context) {
+    const only = readOnly(input.only);
     const session = await context.session();
     const credential = await context.credential();
     let clientName = "";
@@ -46,6 +74,7 @@ const serve: HandwrittenCommand = {
       version: context.version,
       allowWrites: input.allowWrites === true,
       allowSpend: input.allowSpend === true,
+      only,
       secrets: () => credential.secrets(),
       client: context.client(session.apiUrl, credential, userAgent),
       specSource: new SpecSource({
@@ -78,7 +107,7 @@ const install: HandwrittenCommand = {
   command: ["mcp", "install"],
   summary: "Add lazco to an MCP client's configuration",
   description:
-    "Adds or replaces the server entry lazco in the user-level configuration of one client. The entry holds the command and its arguments only, never a credential: the server reads the credential of its profile when the client starts it. --profile, --api-url, --allow-writes and --allow-spend are written into the entry's arguments. --dry-run prints the entry and the file and changes nothing.",
+    "Adds or replaces the server entry lazco in the user-level configuration of one client. The entry holds the command and its arguments only, never a credential: the server reads the credential of its profile when the client starts it. --profile, --api-url, --allow-writes, --allow-spend and each --only are written into the entry's arguments. The prefixes of --only are not checked here: the server checks them each time it starts. --dry-run prints the entry and the file and changes nothing.",
   kind: "write",
   positionals: [],
   inputSchema: {
@@ -94,10 +123,12 @@ const install: HandwrittenCommand = {
         type: "boolean",
         description: "Start the server with --allow-spend",
       },
+      only: ONLY_PROPERTY,
     },
     additionalProperties: false,
   },
   async run(input, context) {
+    const only = readOnly(input.only);
     const serverArgs: string[] = [];
     if (context.flags.profile !== undefined) {
       const config = await readConfig(context.configPath);
@@ -126,6 +157,9 @@ const install: HandwrittenCommand = {
         );
       }
       serverArgs.push("--allow-spend");
+    }
+    for (const prefix of only) {
+      serverArgs.push("--only", prefix.join(" "));
     }
     const launcher = await resolveLauncher({
       paths: context.paths,

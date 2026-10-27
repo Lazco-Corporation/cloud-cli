@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type { OpenApiDocument } from "../../src/core/spec/types";
 import { makeHome } from "../helpers/cli";
 import type { FakeApi } from "../helpers/fakeApi";
 import { type FixtureState, fixtureApi, operationRequests } from "../helpers/fixtureApi";
@@ -128,6 +129,187 @@ describe("the tiers", () => {
     expect(names.filter((name) => name.startsWith("dns_"))).toEqual([]);
     expect(session.client.getInstructions()).toContain("off for the organization");
     expect(session.client.getInstructions()).toContain(": dns.");
+  });
+});
+
+/** Gives one operation of a fixture another command path. */
+function setCommand(spec: OpenApiDocument, path: string, method: string, cli: string): void {
+  const operation = (spec.paths[path] as Record<string, { "x-lazco": { cli: string } }>)[method];
+  if (!operation) {
+    throw new Error(`the fixture has no ${method} ${path}`);
+  }
+  operation["x-lazco"].cli = cli;
+}
+
+describe("--only", () => {
+  async function startOnly(
+    only: string[][],
+    options: { allowWrites?: boolean; allowSpend?: boolean } = {},
+  ): Promise<ConnectedSession> {
+    connected = await connectSession(api, { ...options, only, cacheDirectory: home.cache });
+    return connected;
+  }
+
+  test("only the tools under a prefix, by whole words, and the task reader of an async tool", async () => {
+    const spec = loadFixture("surface");
+    setCommand(spec, "/v1/notifications", "get", "computex list");
+    state.spec = spec;
+    const session = await startOnly([["compute"]], { allowWrites: true });
+    expect(await toolNames(session)).toEqual([
+      "compute_delete_server",
+      "compute_get_server",
+      "compute_list_servers",
+      "compute_set_power",
+      "tasks_get",
+    ]);
+    const tool = (await session.client.listTools()).tools.find(
+      (candidate) => candidate.name === "compute_delete_server",
+    );
+    expect(tool?.description).toContain("Read the task with tasks_get");
+  });
+
+  test("it never adds a tool, and with no async tool there is no task reader", async () => {
+    const session = await startOnly([["compute"]]);
+    expect(await toolNames(session)).toEqual(["compute_get_server", "compute_list_servers"]);
+  });
+
+  test("a read token lists only the read tools of the prefix, even with --allow-writes", async () => {
+    state.scope = "read";
+    const session = await startOnly([["compute"]], { allowWrites: true });
+    expect(await toolNames(session)).toEqual(["compute_get_server", "compute_list_servers"]);
+  });
+
+  test("a prefix whose tools the session cannot use still starts", async () => {
+    state.scope = "read";
+    const session = await startOnly([["dns", "records", "set"]], { allowWrites: true });
+    expect(await toolNames(session)).toEqual([]);
+  });
+
+  test("a spend tool keeps its quote tool outside the prefix, and billing_get_quote stays out", async () => {
+    const spec = loadFixture("spend");
+    setCommand(spec, "/v1/labs/pages/packs/quote", "post", "billing pages-packs quote-create");
+    state.spec = spec;
+    const session = await startOnly([["labs", "pages"]], { allowWrites: true, allowSpend: true });
+    expect(await toolNames(session)).toEqual([
+      "labs_pages_buyout_site",
+      "labs_pages_create_pack",
+      "labs_pages_quote_buyout_site",
+      "labs_pages_quote_create_pack",
+    ]);
+  });
+
+  test("an async spend tool keeps the task reader", async () => {
+    state.spec = loadFixture("spend");
+    const session = await startOnly([["compute", "create"]], {
+      allowWrites: true,
+      allowSpend: true,
+    });
+    expect(await toolNames(session)).toEqual([
+      "compute_create_server",
+      "compute_quote_create_server",
+      "tasks_get",
+    ]);
+  });
+
+  test("the instructions name the prefixes and only the hidden features inside them", async () => {
+    state.features = { dns: false };
+    const session = await startOnly([["compute"], ["notifications"]]);
+    const instructions = session.client.getInstructions() ?? "";
+    expect(instructions).toContain(
+      "This session offers only the tools under: compute, notifications, and the quote tools and the task tool that those tools need. A start without --only offers every tool.",
+    );
+    expect(instructions).not.toContain("off for the organization");
+  });
+
+  test("a hidden feature inside a prefix is named", async () => {
+    state.features = { dns: false };
+    const session = await startOnly([["dns"]]);
+    expect(await toolNames(session)).toEqual([]);
+    expect(session.client.getInstructions()).toContain(": dns.");
+  });
+
+  test("a session without --only says nothing about it", async () => {
+    const session = await start();
+    expect(session.client.getInstructions()).not.toContain("--only");
+  });
+
+  test("a prefix that matches no command fails the start with CLI_INVALID_INPUT", async () => {
+    const started = connectSession(api, {
+      only: [["compute"], ["compute", "artefacts"]],
+      cacheDirectory: home.cache,
+    });
+    await expect(started).rejects.toMatchObject({
+      code: "CLI_INVALID_INPUT",
+      message: expect.stringContaining('"compute artefacts"'),
+      details: [
+        { field: "only", message: '"compute artefacts" matches no command with an MCP tool' },
+      ],
+    });
+  });
+
+  test("a prefix whose commands have no MCP tool fails the start", async () => {
+    const started = connectSession(api, { only: [["tags", "bulk"]], cacheDirectory: home.cache });
+    await expect(started).rejects.toMatchObject({ code: "CLI_INVALID_INPUT" });
+  });
+
+  test("a hidden feature of a kept spend tool's quote tool is named", async () => {
+    const spec = loadFixture("spend");
+    const quote = (
+      spec.paths["/v1/labs/pages/packs/quote"] as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >
+    ).post;
+    if (!quote) {
+      throw new Error("the fixture has no pack quote");
+    }
+    (quote["x-lazco"] as Record<string, unknown>).feature = "quotes";
+    state.spec = spec;
+    state.features = { quotes: false };
+    const session = await startOnly([["labs", "pages", "packs"]], {
+      allowWrites: true,
+      allowSpend: true,
+    });
+    expect(await toolNames(session)).toEqual([]);
+    expect(session.client.getInstructions()).toContain(": quotes.");
+  });
+
+  test("a task reader hidden by its feature is named, though it is outside the prefix", async () => {
+    const spec = loadFixture("surface");
+    const reader = (
+      spec.paths["/v1/tasks/{taskId}"] as Record<string, Record<string, Record<string, unknown>>>
+    ).get;
+    if (!reader) {
+      throw new Error("the fixture has no task reader");
+    }
+    (reader["x-lazco"] as Record<string, unknown>).feature = "tasks";
+    state.spec = spec;
+    state.features = { tasks: false };
+    const session = await startOnly([["compute"]], { allowWrites: true });
+    expect(await toolNames(session)).not.toContain("tasks_get");
+    expect(session.client.getInstructions()).toContain(": tasks.");
+  });
+
+  test("a later spec that drops a prefix warns once and replaces the tools", async () => {
+    const session = await startOnly([["compute"], ["notifications"]]);
+    expect(await toolNames(session)).toContain("notifications_list");
+    const spec = loadFixture("surface");
+    setCommand(spec, "/v1/notifications", "get", "alerts list");
+    state.spec = spec;
+    state.etag = '"fixture-2"';
+    await session.scheduler.tick();
+    await Bun.sleep(20);
+    expect(session.listChanged).toBe(1);
+    expect(await toolNames(session)).toEqual(["compute_get_server", "compute_list_servers"]);
+    state.etag = '"fixture-3"';
+    await session.scheduler.tick();
+    await Bun.sleep(20);
+    const dropped = session.warnings.filter((warning) =>
+      warning.includes('--only "notifications"'),
+    );
+    expect(dropped).toEqual([
+      'warning: --only "notifications" matches no command with an MCP tool any more, so it offers no tool',
+    ]);
   });
 });
 
