@@ -148,7 +148,7 @@ describe("lazco mcp on stdio", () => {
     const names = (await client.listTools()).tools.map((tool) => tool.name).sort();
     expect(names).toEqual(["compute_get_server", "compute_list_servers"]);
     expect(client.getInstructions()).toContain(
-      "This session offers only the tools under: compute.",
+      "This session offers only the tools under: compute, and the quote tools",
     );
   });
 

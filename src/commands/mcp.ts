@@ -107,7 +107,7 @@ const install: HandwrittenCommand = {
   command: ["mcp", "install"],
   summary: "Add lazco to an MCP client's configuration",
   description:
-    "Adds or replaces the server entry lazco in the user-level configuration of one client. The entry holds the command and its arguments only, never a credential: the server reads the credential of its profile when the client starts it. --profile, --api-url, --allow-writes, --allow-spend and each --only are written into the entry's arguments. --dry-run prints the entry and the file and changes nothing.",
+    "Adds or replaces the server entry lazco in the user-level configuration of one client. The entry holds the command and its arguments only, never a credential: the server reads the credential of its profile when the client starts it. --profile, --api-url, --allow-writes, --allow-spend and each --only are written into the entry's arguments. The prefixes of --only are not checked here: the server checks them each time it starts. --dry-run prints the entry and the file and changes nothing.",
   kind: "write",
   positionals: [],
   inputSchema: {

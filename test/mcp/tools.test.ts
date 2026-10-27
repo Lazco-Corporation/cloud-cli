@@ -216,7 +216,7 @@ describe("--only", () => {
     const session = await startOnly([["compute"], ["notifications"]]);
     const instructions = session.client.getInstructions() ?? "";
     expect(instructions).toContain(
-      "This session offers only the tools under: compute, notifications. A start without --only offers every tool.",
+      "This session offers only the tools under: compute, notifications, and the quote tools and the task tool that those tools need. A start without --only offers every tool.",
     );
     expect(instructions).not.toContain("off for the organization");
   });
@@ -272,6 +272,22 @@ describe("--only", () => {
     });
     expect(await toolNames(session)).toEqual([]);
     expect(session.client.getInstructions()).toContain(": quotes.");
+  });
+
+  test("a task reader hidden by its feature is named, though it is outside the prefix", async () => {
+    const spec = loadFixture("surface");
+    const reader = (
+      spec.paths["/v1/tasks/{taskId}"] as Record<string, Record<string, Record<string, unknown>>>
+    ).get;
+    if (!reader) {
+      throw new Error("the fixture has no task reader");
+    }
+    (reader["x-lazco"] as Record<string, unknown>).feature = "tasks";
+    state.spec = spec;
+    state.features = { tasks: false };
+    const session = await startOnly([["compute"]], { allowWrites: true });
+    expect(await toolNames(session)).not.toContain("tasks_get");
+    expect(session.client.getInstructions()).toContain(": tasks.");
   });
 
   test("a later spec that drops a prefix warns once and replaces the tools", async () => {

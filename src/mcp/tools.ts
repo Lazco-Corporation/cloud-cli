@@ -260,10 +260,14 @@ export function selectTools(operations: readonly Operation[], options: SelectOpt
   // Only `--only` can leave the task reader out, since it is a `read` tool.
   if (
     taskReader !== undefined &&
-    hiddenFeature(taskReader, options.facts) === undefined &&
     tools.some((tool) => tool.operation.annotation.async === "task")
   ) {
-    add(taskReader);
+    const readerFeature = hiddenFeature(taskReader, options.facts);
+    if (readerFeature === undefined) {
+      add(taskReader);
+    } else {
+      hidden.add(readerFeature);
+    }
   }
   tools.sort((left, right) => left.name.localeCompare(right.name));
   return {
@@ -338,7 +342,7 @@ export function sessionInstructions(set: ToolSet, facts: SessionFacts): string {
   );
   if (set.only.length > 0) {
     lines.push(
-      `This session offers only the tools under: ${set.only.map(prefixText).join(", ")}. A start without --only offers every tool.`,
+      `This session offers only the tools under: ${set.only.map(prefixText).join(", ")}, and the quote tools and the task tool that those tools need. A start without --only offers every tool.`,
     );
   }
   if (set.hiddenFeatures.length > 0) {

@@ -68,6 +68,8 @@ The exit code is 0, or 1 on any error.
   It runs before the feature check and the tiers, so it can only remove a tool, and the instructions name only the hidden features that hide a tool under the prefixes, such as the feature of the quote tool that a spend tool under the prefixes needs.
   The quote tool of a kept spend tool stays even outside the prefixes.
   The task reader stays when a kept tool has `async: task`, so no description names a tool that is not offered.
+  When the task reader's own feature is off, the instructions name that feature instead.
+  The instructions name the prefixes, and say that the quote tools and the task tool those tools need come too.
   `billing_get_quote` gets no such rule, because no kept tool needs it.
   At start, a prefix that matches no operation with a tool name, whatever its tier or feature, fails with `CLI_INVALID_INPUT`.
   The instructions of `initialize` cannot change, so when a later spec drops a prefix, the 5-minute check writes one warning to stderr and replaces the tools.

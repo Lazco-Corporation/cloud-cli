@@ -7,12 +7,14 @@ The newest release is at the top.
 
 ### Added
 
-- `lazco mcp --only <prefix>` offers only the tools whose command path starts with the prefix, such as `--only "labs artifacts" --only "labs pages"`.
+- `lazco mcp --only <prefix>` offers only the tools whose command path starts with the given words, such as `--only "labs artifacts" --only "labs pages"`.
   It only removes tools from what `--allow-writes`, `--allow-spend`, the token's scope and the organization's features allow.
-  A spend tool keeps its quote tool, and an async tool keeps the task tool.
+  A word matches only a whole word, so `--only "labs art"` matches no command.
+  A spend tool keeps its quote tool, and an async tool keeps the task tool, even outside the prefixes.
   The server does not start when a prefix matches no command with an MCP tool, and the error names the prefix.
+  When a later API spec leaves a prefix with no command, the running server writes one warning to stderr and offers no tool for it.
   It filters the local tool list only, and does not limit what the credential may call.
-- `lazco mcp install --only <prefix>` writes each prefix into the client's entry.
+- `lazco mcp install --only <prefix>` writes each prefix into the client's entry. It does not check the prefixes. The server checks them when it starts.
 
 ## [0.2.1]
 

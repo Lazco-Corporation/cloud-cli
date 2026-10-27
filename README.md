@@ -266,6 +266,8 @@ A read-only sign-in gets read tools only.
 
 To offer the tools of some products only, add `--only` with the first words of their commands.
 Repeat it for each product.
+Each word must match a whole word of the command.
+The server also keeps the quote tool of a spend tool and the task tool of a tool that runs in the background, even when they are under other words.
 For example, for Lazco Artifacts and Lazco Pages only:
 
 ```sh
@@ -273,6 +275,8 @@ lazco mcp install --client <client> --allow-writes --only "labs artifacts" --onl
 ```
 
 Run `lazco <prefix> --help`, such as `lazco labs artifacts --help`, to see the commands a prefix keeps.
+`--help` does not list the commands of a feature that is off for your organization, and the server instructions name those features.
+`lazco mcp install` does not check a prefix, so check it before you install.
 The server does not start when a prefix matches no command with an MCP tool.
 Some commands have no MCP tool, so a prefix that `--help` shows can still match no tool.
 `--only` only shortens the tool list that the server offers.
