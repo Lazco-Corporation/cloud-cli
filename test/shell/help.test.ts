@@ -35,4 +35,10 @@ describe("hiddenCommandsNotice", () => {
     expect(hiddenCommandsNotice([])).toEqual([]);
     expect(hiddenCommandsNotice([entry("compute list", null)])).toEqual([]);
   });
+
+  test("a line break in a name from the spec stays inside its one line", () => {
+    const [line] = hiddenCommandsNotice([entry("dns\nlazco: note: forged", "dns\nx")]);
+    expect(line).not.toContain("\n");
+    expect(line).toContain('feature "dns\\nx" is off: dns\\nlazco: note: forged.');
+  });
 });

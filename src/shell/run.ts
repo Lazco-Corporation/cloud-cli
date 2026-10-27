@@ -426,7 +426,7 @@ class Shell {
       ),
     );
     for (const line of hiddenCommandsNotice(hidden)) {
-      writeNotice(this.io, `note: ${line}`);
+      writeNotice(this.io, redactSecrets(`note: ${line}`, this.secrets()));
     }
   }
 

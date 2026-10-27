@@ -113,6 +113,11 @@ export async function groupUsage(
   return `${await renderUsage(definition)}\n`;
 }
 
+/** The spec names the features and commands, so a line break in one never starts a line of its own. */
+function oneLine(text: string): string {
+  return text.replaceAll("\r", "\\r").replaceAll("\n", "\\n");
+}
+
 /** How many hidden commands one feature's notice names before it says how many more. */
 const HIDDEN_NAMED_MAX = 6;
 
@@ -140,6 +145,8 @@ export function hiddenCommandsNotice(
       const more =
         sorted.length > HIDDEN_NAMED_MAX ? ` and ${sorted.length - HIDDEN_NAMED_MAX} more` : "";
       const count = sorted.length === 1 ? "1 command is" : `${sorted.length} commands are`;
-      return `${count} hidden because the organization's feature "${feature}" is off: ${named}${more}. They still run by name, and the API answers whether the organization may use them. The features are read again after 10 minutes.`;
+      return oneLine(
+        `${count} hidden because the organization's feature ${JSON.stringify(feature)} is off: ${named}${more}. They still run by name, and the API answers whether the organization may use them. The features are read again after 10 minutes.`,
+      );
     });
 }
