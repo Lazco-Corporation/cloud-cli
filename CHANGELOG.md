@@ -3,6 +3,14 @@
 All releases of `@lazco/cli` are in this file.
 The newest release is at the top.
 
+## [0.3.1]
+
+### Fixed
+
+- The `--help` of a command group says when it leaves out commands because a feature of the organization is off, as `lazco compute ptr --help` does while `reverseDns` is off.
+  It writes one `lazco: note:` line to stderr for each such feature, with the feature's name and up to six of the commands it hides.
+  stdout and the commands it lists are unchanged.
+
 ## [0.3.0]
 
 ### Added
