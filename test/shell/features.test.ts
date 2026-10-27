@@ -40,6 +40,29 @@ describe("feature hiding", () => {
     expect(help.stdout).not.toMatch(/\bdns\b/);
   });
 
+  test("--help says on stderr which commands it hid and why, so they can still be found", async () => {
+    const group = await runLazco(["--api-url", api.apiUrl, "dns", "records", "--help"], signedIn());
+    expect(group.code).toBe(0);
+    expect(group.stderr).toContain(
+      'lazco: note: 2 commands are hidden because the organization\'s feature "dns" is off: dns records list, dns records set.',
+    );
+    const root = await runLazco(["--api-url", api.apiUrl, "--help"], signedIn());
+    expect(root.stderr).toContain('feature "dns" is off: dns records list, dns records set');
+    // A group with nothing hidden under it says nothing.
+    const compute = await runLazco(["--api-url", api.apiUrl, "compute", "--help"], signedIn());
+    expect(compute.stderr).not.toContain("hidden");
+  });
+
+  test("with no credential --help hides nothing and adds no note", async () => {
+    const run = await runLazco(
+      ["--api-url", api.apiUrl, "dns", "records", "--help"],
+      cliEnv(home.home, { NO_COLOR: "1" }),
+    );
+    expect(run.stdout).toContain("list");
+    expect(run.stdout).toContain("set");
+    expect(run.stderr).not.toContain("hidden");
+  });
+
   test("it still runs by name, so the API's own answer reaches the user", async () => {
     const run = await runLazco(
       ["--api-url", api.apiUrl, "dns", "records", "list", "z-1"],

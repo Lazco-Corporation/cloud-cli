@@ -112,3 +112,34 @@ export async function groupUsage(
   };
   return `${await renderUsage(definition)}\n`;
 }
+
+/** How many hidden commands one feature's notice names before it says how many more. */
+const HIDDEN_NAMED_MAX = 6;
+
+/**
+ * The notice `--help` writes to stderr for the commands under a group that it
+ * left out because the organization's feature is off, one line per feature,
+ * or none. Without it a group whose commands are all hidden lists nothing, and
+ * nothing says why.
+ */
+export function hiddenCommandsNotice(
+  hidden: ReadonlyArray<Pick<CommandEntry, "command" | "feature">>,
+): string[] {
+  const byFeature = new Map<string, string[]>();
+  for (const entry of hidden) {
+    if (entry.feature === null) continue;
+    const names = byFeature.get(entry.feature) ?? [];
+    names.push(entry.command.join(" "));
+    byFeature.set(entry.feature, names);
+  }
+  return [...byFeature.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([feature, names]) => {
+      const sorted = [...names].sort((left, right) => left.localeCompare(right));
+      const named = sorted.slice(0, HIDDEN_NAMED_MAX).join(", ");
+      const more =
+        sorted.length > HIDDEN_NAMED_MAX ? ` and ${sorted.length - HIDDEN_NAMED_MAX} more` : "";
+      const count = sorted.length === 1 ? "1 command is" : `${sorted.length} commands are`;
+      return `${count} hidden because the organization's feature "${feature}" is off: ${named}${more}. They still run by name, and the API answers whether the organization may use them. The features are read again after 10 minutes.`;
+    });
+}
