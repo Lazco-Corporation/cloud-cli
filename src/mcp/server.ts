@@ -28,13 +28,16 @@ import type { SpecSource } from "../core/spec/loader";
 import type { OpenApiDocument } from "../core/spec/types";
 import { UPLOADERS } from "../uploads/registry";
 import {
+  type CommandPrefix,
   listedTools,
+  prefixText,
   type SessionFacts,
   selectTools,
   sessionInstructions,
   type ToolSet,
   taskToolName,
   toolSetSignature,
+  unmatchedPrefixes,
 } from "./tools";
 
 /** How long a quote holds after the API priced it. */
@@ -74,6 +77,8 @@ export type McpSessionOptions = {
   allowWrites: boolean;
   /** Offer the spend tools and their quote tools, with `allowWrites` too. */
   allowSpend: boolean;
+  /** The `--only` prefixes, empty for every tool. */
+  only: readonly CommandPrefix[];
   /** Every secret of the credential so far, which no tool result may show. */
   secrets: () => readonly string[];
   /** The API client with the credential, which every tool call and `whoami` use. */
@@ -134,13 +139,16 @@ export function readFacts(whoami: unknown): SessionFacts {
   };
 }
 
-/** The tools of a spec for the session, with one warning for each skipped operation. */
+/**
+ * The tools of a spec for the session, with one warning for each skipped
+ * operation, and the `--only` prefixes that match no operation of the spec.
+ */
 function buildToolSet(
   document: OpenApiDocument,
   facts: SessionFacts,
-  options: Pick<McpSessionOptions, "ajv" | "allowWrites" | "allowSpend" | "warn">,
+  options: Pick<McpSessionOptions, "ajv" | "allowWrites" | "allowSpend" | "only" | "warn">,
   warnedSkips: Set<string>,
-): ToolSet {
+): { toolSet: ToolSet; unmatched: CommandPrefix[] } {
   const generated = generateSurface(document, options.ajv);
   for (const skip of generated.skipped) {
     const message = describeSkip(skip);
@@ -149,11 +157,15 @@ function buildToolSet(
       options.warn(`warning: ${message}`);
     }
   }
-  return selectTools(generated.operations, {
-    allowWrites: options.allowWrites,
-    allowSpend: options.allowSpend,
-    facts,
-  });
+  return {
+    toolSet: selectTools(generated.operations, {
+      allowWrites: options.allowWrites,
+      allowSpend: options.allowSpend,
+      facts,
+      only: options.only,
+    }),
+    unmatched: unmatchedPrefixes(generated.operations, options.only),
+  };
 }
 
 /**
@@ -168,6 +180,8 @@ export class McpSession {
   private readonly clock: Clock;
   private readonly scheduler: Scheduler;
   private readonly warnedSkips: Set<string>;
+  /** The `--only` prefixes that matched no operation at the last check. */
+  private unmatched = new Set<string>();
   private toolSet: ToolSet;
   private stopChecks: (() => void) | undefined;
   private checking = false;
@@ -242,7 +256,18 @@ export class McpSession {
     );
     const spec = await options.specSource.get();
     const warnedSkips = new Set<string>();
-    const toolSet = buildToolSet(spec.document, facts, options, warnedSkips);
+    const { toolSet, unmatched } = buildToolSet(spec.document, facts, options, warnedSkips);
+    if (unmatched.length > 0) {
+      const named = unmatched.map((prefix) => `"${prefixText(prefix)}"`).join(", ");
+      throw new CliError(
+        "CLI_INVALID_INPUT",
+        `--only ${named} matches no command of the spec. Check a prefix with lazco <prefix> --help`,
+        unmatched.map((prefix) => ({
+          field: "only",
+          message: `"${prefixText(prefix)}" matches no command`,
+        })),
+      );
+    }
     return new McpSession(options, toolSet, facts, warnedSkips);
   }
 
@@ -273,7 +298,13 @@ export class McpSession {
       const facts = readFacts(
         requireJson(await this.options.client.call({ method: "GET", path: "/whoami" })),
       );
-      const next = buildToolSet(spec.document, facts, this.options, this.warnedSkips);
+      const { toolSet: next, unmatched } = buildToolSet(
+        spec.document,
+        facts,
+        this.options,
+        this.warnedSkips,
+      );
+      this.warnDroppedPrefixes(unmatched);
       if (toolSetSignature(next) === toolSetSignature(this.toolSet)) {
         return false;
       }
@@ -288,6 +319,22 @@ export class McpSession {
     } finally {
       this.checking = false;
     }
+  }
+
+  /**
+   * Warns once when a prefix stops matching. The instructions of
+   * `initialize` cannot change, so stderr is the only place to say it.
+   */
+  private warnDroppedPrefixes(unmatched: readonly CommandPrefix[]): void {
+    const now = new Set(unmatched.map(prefixText));
+    for (const prefix of now) {
+      if (!this.unmatched.has(prefix)) {
+        this.options.warn(
+          `warning: --only "${prefix}" matches no command of the spec any more, so it offers no tool`,
+        );
+      }
+    }
+    this.unmatched = now;
   }
 
   /** One tool call through the guard, the schema check and the request pipeline. */

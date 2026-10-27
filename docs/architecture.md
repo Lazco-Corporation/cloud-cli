@@ -64,6 +64,14 @@ The exit code is 0, or 1 on any error.
   The annotations come from `kind` and the method.
 - A quote tool registers only with its spend tool, never alone.
   A spend tool requires `quoteId` and `expectedAmount`, and its description names its quote tool.
+- `--only <prefix>`, repeatable, keeps only the tools whose `operation.command` starts with the words of a prefix, word by word.
+  It runs before the feature check and the tiers, so it can only remove a tool, and the instructions name only the hidden features inside the prefixes.
+  The quote tool of a kept spend tool stays even outside the prefixes.
+  The task reader stays when a kept tool has `async: task`, so no description names a tool that is not offered.
+  `billing_get_quote` gets no such rule, because no kept tool needs it.
+  At start, a prefix that matches no operation with a tool name, whatever its tier or feature, fails with `CLI_INVALID_INPUT`.
+  The instructions of `initialize` cannot change, so when a later spec drops a prefix, the 5-minute check writes one warning to stderr and replaces the tools.
+  `--only` filters this local server only. The credential can still call every API it could call before.
 - When the client declared `elicitation`, a spend tool call reads the quote with `GET /v1/billing/quotes/{quoteId}`.
   It refuses a quote of another operation, a quote that is not `open`, and an `expectedAmount` that is not the quote's amount.
   Then it asks the user one required boolean, and sends the spend only on `accept` with `confirm` true.

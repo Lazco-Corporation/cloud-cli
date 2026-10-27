@@ -264,6 +264,19 @@ When the client can ask you itself (MCP elicitation), the server shows you the q
 A read-only sign-in gets read tools only.
 `--profile <name>` picks the profile that the server uses.
 
+To offer the tools of some products only, add `--only` with the first words of their commands.
+Repeat it for each product.
+For example, for Lazco Artifacts and Lazco Pages only:
+
+```sh
+lazco mcp install --client <client> --allow-writes --only "labs artifacts" --only "labs pages"
+```
+
+Run `lazco <prefix> --help`, such as `lazco labs artifacts --help`, to see the commands a prefix keeps.
+The server does not start when a prefix matches no command.
+`--only` only shortens the tool list that the server offers.
+It does not limit what your sign-in can do.
+
 For a desktop client, install `lazco` globally first, so the entry names its full path.
 
 ## Limitations

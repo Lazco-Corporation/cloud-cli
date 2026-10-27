@@ -108,6 +108,50 @@ describe("lazco mcp on stdio", () => {
     await reading;
   });
 
+  /** Runs `lazco mcp` with arguments to its end, with stdin left open as a client leaves it. */
+  async function runToExit(args: readonly string[]) {
+    const child = Bun.spawn(["bun", CLI_PATH, "--api-url", api.apiUrl, "mcp", ...args], {
+      env: cliEnv(home.home, { LAZCO_TOKEN: FAKE_TOKEN }),
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    return { stdout, stderr, code };
+  }
+
+  test("an --only prefix that matches no command exits with 1 and CLI_INVALID_INPUT before any MCP message", async () => {
+    const run = await runToExit(["--only", "labs artefacts"]);
+    expect(run.code).toBe(1);
+    expect(run.stdout).toBe("");
+    const error = JSON.parse(run.stderr.trim().split("\n").at(-1) as string).error;
+    expect(error.code).toBe("CLI_INVALID_INPUT");
+    expect(error.message).toContain('"labs artefacts"');
+  });
+
+  test("an empty --only exits with 1 and CLI_INVALID_INPUT before any request", async () => {
+    const run = await runToExit(["--only", " "]);
+    expect(run.code).toBe(1);
+    expect(run.stdout).toBe("");
+    expect(JSON.parse(run.stderr.trim().split("\n").at(-1) as string).error.code).toBe(
+      "CLI_INVALID_INPUT",
+    );
+    expect(api.requests).toEqual([]);
+  });
+
+  test("--only on stdio limits the tools and the instructions name the prefix", async () => {
+    const { client } = await connect(["--only", "compute"]);
+    const names = (await client.listTools()).tools.map((tool) => tool.name).sort();
+    expect(names).toEqual(["compute_get_server", "compute_list_servers"]);
+    expect(client.getInstructions()).toContain(
+      "This session offers only the tools under: compute.",
+    );
+  });
+
   test("the capabilities are tools with listChanged, and no resources or prompts", async () => {
     const { client } = await connect();
     const capabilities = client.getServerCapabilities();
