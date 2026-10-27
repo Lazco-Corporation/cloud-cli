@@ -261,10 +261,10 @@ export class McpSession {
       const named = unmatched.map((prefix) => `"${prefixText(prefix)}"`).join(", ");
       throw new CliError(
         "CLI_INVALID_INPUT",
-        `--only ${named} matches no command of the spec. Check a prefix with lazco <prefix> --help`,
+        `--only ${named} matches no command with an MCP tool. Check a prefix with lazco <prefix> --help`,
         unmatched.map((prefix) => ({
           field: "only",
-          message: `"${prefixText(prefix)}" matches no command`,
+          message: `"${prefixText(prefix)}" matches no command with an MCP tool`,
         })),
       );
     }
@@ -330,7 +330,7 @@ export class McpSession {
     for (const prefix of now) {
       if (!this.unmatched.has(prefix)) {
         this.options.warn(
-          `warning: --only "${prefix}" matches no command of the spec any more, so it offers no tool`,
+          `warning: --only "${prefix}" matches no command with an MCP tool any more, so it offers no tool`,
         );
       }
     }

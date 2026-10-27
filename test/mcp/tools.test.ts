@@ -241,8 +241,37 @@ describe("--only", () => {
     await expect(started).rejects.toMatchObject({
       code: "CLI_INVALID_INPUT",
       message: expect.stringContaining('"compute artefacts"'),
-      details: [{ field: "only", message: '"compute artefacts" matches no command' }],
+      details: [
+        { field: "only", message: '"compute artefacts" matches no command with an MCP tool' },
+      ],
     });
+  });
+
+  test("a prefix whose commands have no MCP tool fails the start", async () => {
+    const started = connectSession(api, { only: [["tags", "bulk"]], cacheDirectory: home.cache });
+    await expect(started).rejects.toMatchObject({ code: "CLI_INVALID_INPUT" });
+  });
+
+  test("a hidden feature of a kept spend tool's quote tool is named", async () => {
+    const spec = loadFixture("spend");
+    const quote = (
+      spec.paths["/v1/labs/pages/packs/quote"] as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >
+    ).post;
+    if (!quote) {
+      throw new Error("the fixture has no pack quote");
+    }
+    (quote["x-lazco"] as Record<string, unknown>).feature = "quotes";
+    state.spec = spec;
+    state.features = { quotes: false };
+    const session = await startOnly([["labs", "pages", "packs"]], {
+      allowWrites: true,
+      allowSpend: true,
+    });
+    expect(await toolNames(session)).toEqual([]);
+    expect(session.client.getInstructions()).toContain(": quotes.");
   });
 
   test("a later spec that drops a prefix warns once and replaces the tools", async () => {
@@ -263,7 +292,7 @@ describe("--only", () => {
       warning.includes('--only "notifications"'),
     );
     expect(dropped).toEqual([
-      'warning: --only "notifications" matches no command of the spec any more, so it offers no tool',
+      'warning: --only "notifications" matches no command with an MCP tool any more, so it offers no tool',
     ]);
   });
 });

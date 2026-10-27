@@ -273,7 +273,8 @@ lazco mcp install --client <client> --allow-writes --only "labs artifacts" --onl
 ```
 
 Run `lazco <prefix> --help`, such as `lazco labs artifacts --help`, to see the commands a prefix keeps.
-The server does not start when a prefix matches no command.
+The server does not start when a prefix matches no command with an MCP tool.
+Some commands have no MCP tool, so a prefix that `--help` shows can still match no tool.
 `--only` only shortens the tool list that the server offers.
 It does not limit what your sign-in can do.
 

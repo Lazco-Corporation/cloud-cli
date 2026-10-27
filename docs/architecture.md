@@ -65,7 +65,7 @@ The exit code is 0, or 1 on any error.
 - A quote tool registers only with its spend tool, never alone.
   A spend tool requires `quoteId` and `expectedAmount`, and its description names its quote tool.
 - `--only <prefix>`, repeatable, keeps only the tools whose `operation.command` starts with the words of a prefix, word by word.
-  It runs before the feature check and the tiers, so it can only remove a tool, and the instructions name only the hidden features inside the prefixes.
+  It runs before the feature check and the tiers, so it can only remove a tool, and the instructions name only the hidden features that hide a tool under the prefixes, such as the feature of the quote tool that a spend tool under the prefixes needs.
   The quote tool of a kept spend tool stays even outside the prefixes.
   The task reader stays when a kept tool has `async: task`, so no description names a tool that is not offered.
   `billing_get_quote` gets no such rule, because no kept tool needs it.

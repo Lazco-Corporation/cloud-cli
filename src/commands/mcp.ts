@@ -43,7 +43,7 @@ const serve: HandwrittenCommand = {
   command: ["mcp"],
   summary: "Serve the API's operations as MCP tools on stdio",
   description:
-    "A local MCP server for an MCP client to start. It uses the credential of this run, as every command does, and refreshes an SSO sign-in as it goes. Without --allow-writes it offers read tools only. With it, write tools and the destructive tools that need a confirmation are added, unless the token's scope is read. With --allow-spend too, the tools that spend from the account balance are added, each with its quote tool. --only keeps only the tools under the given command path prefixes, after those rules, and fails the start when a prefix matches no command. Nothing but MCP is written to stdout.",
+    "A local MCP server for an MCP client to start. It uses the credential of this run, as every command does, and refreshes an SSO sign-in as it goes. Without --allow-writes it offers read tools only. With it, write tools and the destructive tools that need a confirmation are added, unless the token's scope is read. With --allow-spend too, the tools that spend from the account balance are added, each with its quote tool. --only keeps only the tools under the given command path prefixes, after those rules, and fails the start when a prefix matches no command with an MCP tool. Nothing but MCP is written to stdout.",
   kind: "read",
   positionals: [],
   inputSchema: {
