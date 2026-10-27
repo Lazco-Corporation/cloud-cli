@@ -36,15 +36,51 @@ export type ToolEntry = {
   operation: Operation;
 };
 
+/** One `--only` value: the first words of the command paths to keep, such as `["labs", "pages"]`. */
+export type CommandPrefix = readonly string[];
+
 export type ToolSet = {
   tools: readonly ToolEntry[];
-  /** Every feature that is off and hides at least one tool, sorted. */
+  /** The `--only` prefixes of the session, empty when every tool may be offered. */
+  only: readonly CommandPrefix[];
+  /** Every feature that is off and hides at least one tool in the prefixes, sorted. */
   hiddenFeatures: readonly string[];
   /** Why the session cannot write, or `null` when it can. */
   readOnlyReason: string | null;
   /** Why the session offers no spend tool, or `null` when it offers them. */
   noSpendReason: string | null;
 };
+
+/** True when the first words of `command` are the words of `prefix`, one by one. */
+export function matchesPrefix(command: readonly string[], prefix: CommandPrefix): boolean {
+  return (
+    prefix.length > 0 &&
+    prefix.length <= command.length &&
+    prefix.every((word, index) => command[index] === word)
+  );
+}
+
+function inPrefixes(operation: Operation, only: readonly CommandPrefix[]): boolean {
+  return only.length === 0 || only.some((prefix) => matchesPrefix(operation.command, prefix));
+}
+
+/** The prefixes that match no operation with a tool, whatever its tier or feature. */
+export function unmatchedPrefixes(
+  operations: readonly Operation[],
+  only: readonly CommandPrefix[],
+): CommandPrefix[] {
+  return only.filter(
+    (prefix) =>
+      !operations.some(
+        (operation) => operation.toolName !== null && matchesPrefix(operation.command, prefix),
+      ),
+  );
+}
+
+/** A prefix as the user typed it, such as `labs pages`. */
+export function prefixText(prefix: CommandPrefix): string {
+  return prefix.join(" ");
+}
 
 /** The operation that reads a task, whose tool an async tool's result names. */
 export function isTaskReader(operation: Operation): boolean {
@@ -142,26 +178,34 @@ function hiddenFeature(operation: Operation, facts: SessionFacts): string | unde
     : undefined;
 }
 
+export type SelectOptions = {
+  allowWrites: boolean;
+  allowSpend: boolean;
+  facts: SessionFacts;
+  /** The `--only` prefixes, empty for every tool. */
+  only: readonly CommandPrefix[];
+};
+
 /**
  * The tools of a session by the tiers of `cli-mcp`: `read` always, `write`
  * and `destructive` with `--allow-writes` on a token that can write, a
  * `destructive` one only with `confirm`, a `spend` one only with
  * `--allow-spend` too and together with its quote tool, a quote tool never
- * alone, and none whose feature is off.
+ * alone, and none whose feature is off. With `--only`, only the tools in its
+ * prefixes, plus the quote tool of a spend tool and the task reader of an
+ * async tool, so no description names a tool the session does not offer.
  */
-export function selectTools(
-  operations: readonly Operation[],
-  options: { allowWrites: boolean; allowSpend: boolean; facts: SessionFacts },
-): ToolSet {
+export function selectTools(operations: readonly Operation[], options: SelectOptions): ToolSet {
   // An allow-list, so a scope this version does not know offers no write tool.
   const readOnlyScope = !WRITE_SCOPES.has(options.facts.scope);
   const writes = options.allowWrites && !readOnlyScope;
   const spends = writes && options.allowSpend;
   const hidden = new Set<string>();
-  const taskTool = operations.find(
+  const taskReader = operations.find(
     (operation) =>
       operation.toolName !== null && operation.kind === "read" && isTaskReader(operation),
-  )?.toolName;
+  );
+  const taskTool = taskReader?.toolName;
   const tools: ToolEntry[] = [];
   let spendTools = 0;
   const add = (operation: Operation): void => {
@@ -180,6 +224,9 @@ export function selectTools(
   for (const operation of operations) {
     // A quote tool registers with its spend tool, below, and never on its own.
     if (operation.toolName === null || operation.isQuote) {
+      continue;
+    }
+    if (!inPrefixes(operation, options.only)) {
       continue;
     }
     const feature = hiddenFeature(operation, options.facts);
@@ -210,9 +257,22 @@ export function selectTools(
       add(operation);
     }
   }
+  // Only `--only` can leave the task reader out, since it is a `read` tool.
+  if (
+    taskReader !== undefined &&
+    tools.some((tool) => tool.operation.annotation.async === "task")
+  ) {
+    const readerFeature = hiddenFeature(taskReader, options.facts);
+    if (readerFeature === undefined) {
+      add(taskReader);
+    } else {
+      hidden.add(readerFeature);
+    }
+  }
   tools.sort((left, right) => left.name.localeCompare(right.name));
   return {
     tools,
+    only: options.only,
     hiddenFeatures: [...hidden].sort(),
     readOnlyReason: readOnlyScope
       ? `the token's scope is ${options.facts.scope}, so no write tool is offered, even with --allow-writes`
@@ -225,7 +285,7 @@ export function selectTools(
 
 /** Why a session offers no spend tool, or `null` when it offers at least one. */
 function noSpendReason(
-  options: { allowWrites: boolean; allowSpend: boolean; facts: SessionFacts },
+  options: SelectOptions,
   readOnlyScope: boolean,
   spendTools: number,
 ): string | null {
@@ -239,7 +299,9 @@ function noSpendReason(
     return "it was started with --allow-spend but without --allow-writes, and spending needs both";
   }
   if (spendTools === 0) {
-    return "no spend operation of the spec has a tool and a quote tool for this organization";
+    return options.only.length > 0
+      ? "no spend operation under the --only prefixes has a tool and a quote tool for this organization"
+      : "no spend operation of the spec has a tool and a quote tool for this organization";
   }
   return null;
 }
@@ -278,6 +340,11 @@ export function sessionInstructions(set: ToolSet, facts: SessionFacts): string {
       ? "Spend tools take money from the account balance. Before each spend tool, call its quote tool, show the quote to the user, and get a yes. A quote is good for 10 minutes and for one spend."
       : `No spend tool is offered, because ${set.noSpendReason}.`,
   );
+  if (set.only.length > 0) {
+    lines.push(
+      `This session offers only the tools under: ${set.only.map(prefixText).join(", ")}, and the quote tools and the task tool that those tools need. A start without --only offers every tool.`,
+    );
+  }
   if (set.hiddenFeatures.length > 0) {
     lines.push(
       `These features are off for the organization, so their tools are hidden: ${set.hiddenFeatures.join(", ")}.`,

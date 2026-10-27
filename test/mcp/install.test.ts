@@ -260,6 +260,36 @@ describe("lazco mcp install", () => {
     ]);
   });
 
+  test("each --only is written into the entry's arguments, in order, after the other flags", async () => {
+    const lazco = await fakeProgram("lazco");
+    const run = await install(
+      [
+        "--client",
+        "cursor",
+        "--allow-writes",
+        "--only",
+        "labs artifacts",
+        "--only",
+        "labs   pages",
+      ],
+      { platform: "linux" },
+    );
+    expect(run.code).toBe(0);
+    const written = await readJson(join(home.home, ".cursor", "mcp.json"));
+    expect(written.mcpServers?.lazco).toEqual({
+      command: lazco,
+      args: ["mcp", "--allow-writes", "--only", "labs artifacts", "--only", "labs pages"],
+    });
+  });
+
+  test("an empty --only is CLI_INVALID_INPUT and writes nothing", async () => {
+    await fakeProgram("lazco");
+    const run = await install(["--client", "cursor", "--only", ""], { platform: "linux" });
+    expect(run.code).toBe(1);
+    expect(run.error.error.code).toBe("CLI_INVALID_INPUT");
+    expect(await Bun.file(join(home.home, ".cursor", "mcp.json")).exists()).toBe(false);
+  });
+
   test("--allow-spend without --allow-writes is CLI_INVALID_INPUT and writes nothing", async () => {
     await fakeProgram("lazco");
     const claude = await fakeProgram("claude");

@@ -64,6 +64,8 @@ export async function connectSession(
   options: {
     allowWrites?: boolean;
     allowSpend?: boolean;
+    /** The `--only` prefixes, each as its words. */
+    only?: ReadonlyArray<readonly string[]>;
     cacheDirectory: string;
     clock?: Clock;
     elicitation?: ElicitationAnswer;
@@ -79,6 +81,7 @@ export async function connectSession(
     version: VERSION,
     allowWrites: options.allowWrites === true,
     allowSpend: options.allowSpend === true,
+    only: options.only ?? [],
     secrets: () => [FAKE_TOKEN],
     client: new ApiClient({
       apiUrl: api.apiUrl,
