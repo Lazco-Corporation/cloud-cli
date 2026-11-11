@@ -150,7 +150,7 @@ function describeTool(operation: Operation, taskTool: string | undefined): strin
   if (operation.annotation.async === "task") {
     lines.push(
       taskTool
-        ? `Returns at once with a taskId. Read the task with ${taskTool} until its status is completed or failed.`
+        ? `Returns at once with a taskId. Read the task with ${taskTool} until its status is completed, failed or cancelled. A cancelled task did not do what it was asked: another action, such as a force stop, replaced it.`
         : "Returns at once with a taskId.",
     );
   }

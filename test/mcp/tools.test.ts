@@ -166,6 +166,7 @@ describe("--only", () => {
       (candidate) => candidate.name === "compute_delete_server",
     );
     expect(tool?.description).toContain("Read the task with tasks_get");
+    expect(tool?.description).toContain("until its status is completed, failed or cancelled");
   });
 
   test("it never adds a tool, and with no async tool there is no task reader", async () => {
