@@ -3,6 +3,15 @@
 All releases of `@lazco/cli` are in this file.
 The newest release is at the top.
 
+## [0.3.2]
+
+### Fixed
+
+- A command that waits on a task, such as `lazco compute power set`, stops waiting when the task ends `cancelled`, and fails with `CLI_TASK_FAILED` as it does for `failed`.
+  A task ends `cancelled` when another action replaced it, such as a force stop that overruled a graceful shutdown that was still running.
+  Before, the wait ran on until its timeout.
+- The MCP description of an async tool says to read the task until its status is `completed`, `failed` or `cancelled`.
+
 ## [0.3.1]
 
 ### Fixed

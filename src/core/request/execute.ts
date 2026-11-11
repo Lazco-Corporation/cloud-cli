@@ -156,5 +156,14 @@ export async function waitForTask(
       const reason = typeof task.error === "string" && task.error ? task.error : "The task failed";
       throw new CliError("CLI_TASK_FAILED", reason, { accepted, task });
     }
+    // A task ends `cancelled` when another action replaced it, such as a force
+    // stop that overruled a graceful shutdown. What was asked for did not
+    // happen, so it fails like `failed`, and the wait never runs on to its
+    // timeout on a task that will not change again.
+    if (task?.status === "cancelled") {
+      const reason =
+        typeof task.error === "string" && task.error ? task.error : "The task was cancelled";
+      throw new CliError("CLI_TASK_FAILED", reason, { accepted, task });
+    }
   }
 }

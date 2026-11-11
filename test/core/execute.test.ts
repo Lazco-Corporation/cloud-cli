@@ -78,6 +78,9 @@ function taskServer(accepted: unknown, statuses: string[]) {
         status,
         progress: reads * 10,
         ...(status === "failed" ? { error: "No capacity", errorCode: "NO_CAPACITY" } : {}),
+        ...(status === "cancelled"
+          ? { error: "Cancelled by a force stop", errorCode: "CANCELLED_BY_FORCE_STOP" }
+          : {}),
       });
     }
     return json(202, accepted);
@@ -135,6 +138,40 @@ describe("task wait", () => {
       accepted: { taskId: "t-1" },
       task: { status: "failed", errorCode: "NO_CAPACITY" },
     });
+  });
+
+  test("cancelled is CLI_TASK_FAILED with the 202 body and the task, and stops the wait", async () => {
+    api.handler = taskServer({ taskId: "t-1" }, ["running", "cancelled", "completed"]);
+    const { run, clock } = setup();
+    const error = (await run(
+      "compute create",
+      { hostname: "web-1", regionSlug: "txg1", planSlug: "s1" },
+      { wait: true, timeoutSeconds: 600 },
+    ).catch((failure: unknown) => failure)) as CliError;
+    expect(error).toBeInstanceOf(CliError);
+    expect(error.code).toBe("CLI_TASK_FAILED");
+    expect(error.message).toBe("Cancelled by a force stop");
+    expect(error.details).toMatchObject({
+      accepted: { taskId: "t-1" },
+      task: { status: "cancelled", errorCode: "CANCELLED_BY_FORCE_STOP" },
+    });
+    expect(api.requests.filter((request) => request.path.startsWith("/v1/tasks/"))).toHaveLength(2);
+    expect(clock.sleeps).toEqual([2000, 3000]);
+  });
+
+  test("a cancelled task with no error reads as cancelled", async () => {
+    api.handler = (request: RecordedRequest) =>
+      request.path.startsWith("/v1/tasks/")
+        ? json(200, { id: "t-1", status: "cancelled" })
+        : json(202, { taskId: "t-1" });
+    const { run } = setup();
+    const error = (await run("compute create", {
+      hostname: "web-1",
+      regionSlug: "txg1",
+      planSlug: "s1",
+    }).catch((failure: unknown) => failure)) as CliError;
+    expect(error.code).toBe("CLI_TASK_FAILED");
+    expect(error.message).toBe("The task was cancelled");
   });
 
   test("the timeout is CLI_TIMEOUT with the taskId and the 202 body", async () => {
