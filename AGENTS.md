@@ -72,5 +72,5 @@ The pre-push hook runs gitleaks, the check, the type check and the unit tests.
   A spend tool needs a quote too.
   It asks the user only when the client declared elicitation, and otherwise it relies on its description and the instructions, which tell the model to show the quote and get a yes.
   Money stays the decimal string the API sent.
-- Every job of `.github/workflows/ci.yml` and `.github/workflows/release-npm.yml` runs on `ubuntu-latest`. No secret lives in GitHub: CI reads Infisical `lazco-cloud-cli` through OIDC.
+- Every job of `.github/workflows/ci.yml` and `.github/workflows/release-npm.yml` runs on `ubuntu-24.04`. No secret lives in GitHub: CI reads Infisical `lazco-cloud-cli` through OIDC.
 - The MCP evaluation set runs locally, never in CI, and its results never go into the repo.
